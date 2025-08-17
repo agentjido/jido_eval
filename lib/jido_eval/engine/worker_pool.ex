@@ -36,7 +36,7 @@ defmodule Jido.Eval.Engine.WorkerPool do
   use GenServer
   require Logger
 
-  alias Jido.Eval.{Config, Result, Dataset, Metric}
+  alias Jido.Eval.{Result, Dataset}
   alias Jido.Eval.Engine.Worker
 
   @default_opts [
@@ -92,11 +92,13 @@ defmodule Jido.Eval.Engine.WorkerPool do
     dataset = Keyword.fetch!(opts, :dataset)
     metrics = Keyword.fetch!(opts, :metrics)
     registry = opts[:registry]
-    
+
     # Validate metrics exist
     case validate_metrics(metrics) do
-      :ok -> :ok
-      {:error, reason} -> 
+      :ok ->
+        :ok
+
+      {:error, reason} ->
         Logger.error("Invalid metrics for run #{config.run_id}: #{inspect(reason)}")
         {:stop, {:invalid_metrics, reason}}
     end
@@ -148,11 +150,11 @@ defmodule Jido.Eval.Engine.WorkerPool do
   @impl true
   def handle_continue(:start_workers, state) do
     max_workers = state.config.run_config.max_workers
-    
+
     # Start initial batch of workers
     workers = start_workers(max_workers, state)
     updated_state = %{state | workers: workers}
-    
+
     # Begin processing samples
     {:noreply, process_next_samples(updated_state)}
   end
@@ -169,7 +171,7 @@ defmodule Jido.Eval.Engine.WorkerPool do
       elapsed_ms: System.monotonic_time(:millisecond) - state.start_time,
       cancelled: state.cancelled
     }
-    
+
     {:reply, progress, state}
   end
 
@@ -188,17 +190,17 @@ defmodule Jido.Eval.Engine.WorkerPool do
   @impl true
   def handle_cast(:cancel, state) do
     Logger.info("Cancelling evaluation run #{state.config.run_id}")
-    
+
     # Cancel all active workers
     Enum.each(state.workers, fn {worker_pid, _worker_state} ->
       GenServer.cast(worker_pid, :cancel)
     end)
-    
+
     updated_state = %{state | cancelled: true}
-    
+
     # Notify any awaiting processes
     notify_awaiting_processes(updated_state, {:error, :cancelled})
-    
+
     {:noreply, %{updated_state | awaiting_pids: []}}
   end
 
@@ -206,19 +208,23 @@ defmodule Jido.Eval.Engine.WorkerPool do
   def handle_info({:worker_result, worker_pid, sample_result}, state) do
     # Remove worker from active set
     updated_workers = Map.delete(state.workers, worker_pid)
-    
+
     # Add sample result to aggregated results
     updated_result = Result.add_sample_result(state.result, sample_result)
     updated_completed = state.completed_count + 1
-    
+
     # Emit progress telemetry
-    emit_telemetry(:progress, %{
-      completed: updated_completed,
-      total: state.total_count
-    }, %{
-      run_id: state.config.run_id,
-      progress_pct: updated_completed / state.total_count * 100
-    })
+    emit_telemetry(
+      :progress,
+      %{
+        completed: updated_completed,
+        total: state.total_count
+      },
+      %{
+        run_id: state.config.run_id,
+        progress_pct: updated_completed / state.total_count * 100
+      }
+    )
 
     # Emit sample completion telemetry
     emit_telemetry(:sample, :stop, sample_result.latency_ms || 0, %{
@@ -228,15 +234,16 @@ defmodule Jido.Eval.Engine.WorkerPool do
       error: sample_result.error
     })
 
-    updated_state = %{state |
-      workers: updated_workers,
-      result: updated_result,
-      completed_count: updated_completed
+    updated_state = %{
+      state
+      | workers: updated_workers,
+        result: updated_result,
+        completed_count: updated_completed
     }
 
     # Execute reporters for this sample
     execute_reporters(state.config.reporters, :sample, sample_result)
-    
+
     # Execute broadcasters for progress
     execute_broadcasters(state.config.broadcasters, :progress, %{
       completed: updated_completed,
@@ -248,10 +255,10 @@ defmodule Jido.Eval.Engine.WorkerPool do
     if evaluation_complete?(updated_state) do
       finalized_result = finalize_result(updated_state)
       notify_awaiting_processes(updated_state, finalized_result)
-      
+
       # Schedule cleanup
       Process.send_after(self(), :cleanup, 1_000)
-      
+
       {:noreply, %{updated_state | awaiting_pids: []}}
     else
       # Continue processing with next samples
@@ -259,59 +266,63 @@ defmodule Jido.Eval.Engine.WorkerPool do
     end
   end
 
-  @impl true 
+  @impl true
   def handle_info({:worker_error, worker_pid, error}, state) do
     Logger.warning("Worker #{inspect(worker_pid)} failed: #{inspect(error)}")
-    
+
     # Remove failed worker
     updated_workers = Map.delete(state.workers, worker_pid)
-    
+
     # Start replacement worker if not cancelled and samples remain
-    workers = if not state.cancelled and samples_remaining?(state) do
-      case start_worker(state) do
-        {:ok, new_worker_pid} -> 
-          Map.put(updated_workers, new_worker_pid, :idle)
-        {:error, reason} ->
-          Logger.error("Failed to start replacement worker: #{inspect(reason)}")
-          updated_workers
+    workers =
+      if not state.cancelled and samples_remaining?(state) do
+        case start_worker(state) do
+          {:ok, new_worker_pid} ->
+            Map.put(updated_workers, new_worker_pid, :idle)
+
+          {:error, reason} ->
+            Logger.error("Failed to start replacement worker: #{inspect(reason)}")
+            updated_workers
+        end
+      else
+        updated_workers
       end
-    else
-      updated_workers
-    end
 
     updated_state = %{state | workers: workers}
-    
+
     {:noreply, process_next_samples(updated_state)}
   end
 
   @impl true
   def handle_info({:DOWN, _ref, :process, worker_pid, reason}, state) do
     Logger.debug("Worker #{inspect(worker_pid)} terminated: #{inspect(reason)}")
-    
+
     # Remove from workers map
     updated_workers = Map.delete(state.workers, worker_pid)
-    
+
     # Start replacement if needed
-    workers = if not state.cancelled and samples_remaining?(state) do
-      case start_worker(state) do
-        {:ok, new_worker_pid} ->
-          Map.put(updated_workers, new_worker_pid, :idle)
-        {:error, _reason} ->
-          updated_workers
+    workers =
+      if not state.cancelled and samples_remaining?(state) do
+        case start_worker(state) do
+          {:ok, new_worker_pid} ->
+            Map.put(updated_workers, new_worker_pid, :idle)
+
+          {:error, _reason} ->
+            updated_workers
+        end
+      else
+        updated_workers
       end
-    else
-      updated_workers
-    end
 
     updated_state = %{state | workers: workers}
-    
+
     {:noreply, process_next_samples(updated_state)}
   end
 
   @impl true
   def handle_info(:cleanup, state) do
     Logger.debug("Cleaning up worker pool for run #{state.config.run_id}")
-    
+
     # Stop all remaining workers
     Enum.each(state.workers, fn {worker_pid, _} ->
       GenServer.stop(worker_pid, :normal)
@@ -329,7 +340,7 @@ defmodule Jido.Eval.Engine.WorkerPool do
   defp via_tuple(run_id, registry), do: {:via, Registry, {registry, run_id}}
 
   defp validate_metrics(metrics) do
-    invalid_metrics = 
+    invalid_metrics =
       metrics
       |> Enum.reject(fn metric ->
         case Jido.Eval.ComponentRegistry.lookup(:metric, metric) do
@@ -348,8 +359,10 @@ defmodule Jido.Eval.Engine.WorkerPool do
     1..count
     |> Enum.reduce(%{}, fn _, acc ->
       case start_worker(state) do
-        {:ok, worker_pid} -> Map.put(acc, worker_pid, :idle)
-        {:error, reason} -> 
+        {:ok, worker_pid} ->
+          Map.put(acc, worker_pid, :idle)
+
+        {:error, reason} ->
           Logger.error("Failed to start worker: #{inspect(reason)}")
           acc
       end
@@ -366,23 +379,25 @@ defmodule Jido.Eval.Engine.WorkerPool do
     ]
 
     case Worker.start_link(worker_opts) do
-      {:ok, pid} -> 
+      {:ok, pid} ->
         Process.monitor(pid)
         {:ok, pid}
-      error -> error
+
+      error ->
+        error
     end
   end
 
   defp process_next_samples(state) do
     # Find idle workers
-    idle_workers = 
+    idle_workers =
       state.workers
       |> Enum.filter(fn {_pid, worker_state} -> worker_state == :idle end)
       |> Enum.map(fn {pid, _state} -> pid end)
 
     # Assign samples to idle workers
     updated_state = assign_samples_to_workers(state, idle_workers)
-    
+
     updated_state
   end
 
@@ -393,10 +408,10 @@ defmodule Jido.Eval.Engine.WorkerPool do
       {:ok, sample, updated_state} ->
         # Assign sample to worker
         GenServer.cast(worker_pid, {:evaluate_sample, sample})
-        
+
         # Update worker state to busy
         updated_workers = Map.put(updated_state.workers, worker_pid, :busy)
-        
+
         # Emit sample start telemetry
         emit_telemetry(:sample, :start, %{}, %{
           run_id: state.config.run_id,
@@ -439,8 +454,8 @@ defmodule Jido.Eval.Engine.WorkerPool do
   defp evaluation_complete?(state) do
     # All samples processed and no active workers
     state.completed_count >= state.total_count or
-    (samples_remaining?(state) == false and map_size(state.workers) == 0) or
-    state.cancelled
+      (samples_remaining?(state) == false and map_size(state.workers) == 0) or
+      state.cancelled
   end
 
   defp samples_remaining?(state) do
@@ -449,30 +464,35 @@ defmodule Jido.Eval.Engine.WorkerPool do
 
   defp finalize_result(state) do
     finalized_result = Result.finalize(state.result)
-    
+
     # Execute post-processors
     execute_processors(state.config.processors, :post, finalized_result)
-    
+
     # Execute summary reporters
     execute_reporters(state.config.reporters, :summary, finalized_result)
-    
+
     # Execute stores
     execute_stores(state.config.stores, finalized_result)
-    
+
     # Execute final broadcasters
     execute_broadcasters(state.config.broadcasters, :completed, finalized_result)
-    
+
     # Emit run completion telemetry
-    emit_telemetry(:run, :stop, %{
-      duration_ms: finalized_result.duration_ms || 0,
-      total: finalized_result.sample_count,
-      completed: finalized_result.completed_count,
-      errors: finalized_result.error_count
-    }, %{
-      run_id: state.config.run_id,
-      result: finalized_result
-    })
-    
+    emit_telemetry(
+      :run,
+      :stop,
+      %{
+        duration_ms: finalized_result.duration_ms || 0,
+        total: finalized_result.sample_count,
+        completed: finalized_result.completed_count,
+        errors: finalized_result.error_count
+      },
+      %{
+        run_id: state.config.run_id,
+        result: finalized_result
+      }
+    )
+
     finalized_result
   end
 
@@ -526,9 +546,14 @@ defmodule Jido.Eval.Engine.WorkerPool do
     end)
   end
 
-  defp emit_telemetry(event_name, measurements_or_event, metadata_or_measurements, metadata \\ %{})
+  defp emit_telemetry(
+         event_name,
+         measurements_or_event,
+         metadata_or_measurements,
+         metadata \\ %{}
+       )
 
-  defp emit_telemetry(event_name, event_type, measurements, metadata) 
+  defp emit_telemetry(event_name, event_type, measurements, metadata)
        when event_type in [:start, :stop] do
     :telemetry.execute(
       [:jido, :eval, event_name, event_type],

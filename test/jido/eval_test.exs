@@ -21,16 +21,17 @@ defmodule Jido.EvalTest do
         tags: %{"category" => "math"}
       }
     ]
-    
-    Dataset.from_list(samples)
+
+    {:ok, dataset} = Dataset.InMemory.new(samples)
+    dataset
   end
 
   describe "evaluate/2 synchronous" do
     test "basic synchronous evaluation" do
       dataset = sample_dataset()
-      
+
       {:ok, result} = Eval.evaluate(dataset, metrics: [:faithfulness])
-      
+
       assert is_binary(result.run_id)
       assert result.sample_count == 2
       assert result.completed_count >= 0
@@ -41,71 +42,77 @@ defmodule Jido.EvalTest do
 
     test "evaluation with custom LLM model" do
       dataset = sample_dataset()
-      
-      {:ok, result} = Eval.evaluate(dataset, 
-        metrics: [:faithfulness],
-        llm: "test:custom-model"
-      )
-      
+
+      {:ok, result} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          llm: "test:custom-model"
+        )
+
       assert result.config.model_spec == "test:custom-model"
     end
 
     test "evaluation with custom configuration" do
       dataset = sample_dataset()
+
       config = %Config{
         model_spec: "test:configured",
         tags: %{"experiment" => "custom_config"}
       }
-      
-      {:ok, result} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        config: config
-      )
-      
+
+      {:ok, result} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          config: config
+        )
+
       assert result.config.model_spec == "test:configured"
       assert result.config.tags["experiment"] == "custom_config"
     end
 
     test "evaluation with run config overrides" do
       dataset = sample_dataset()
-      
-      {:ok, result} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        run_config: %{max_workers: 1, timeout: 20_000}
-      )
-      
+
+      {:ok, result} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          run_config: %{max_workers: 1, timeout: 20_000}
+        )
+
       assert result.config.run_config.max_workers == 1
       assert result.config.run_config.timeout == 20_000
     end
 
     test "evaluation with tags" do
       dataset = sample_dataset()
-      
-      {:ok, result} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        tags: %{"experiment" => "tag_test", "version" => "1.0"}
-      )
-      
+
+      {:ok, result} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          tags: %{"experiment" => "tag_test", "version" => "1.0"}
+        )
+
       assert result.config.tags["experiment"] == "tag_test"
       assert result.config.tags["version"] == "1.0"
     end
 
     test "evaluation with multiple metrics" do
       dataset = sample_dataset()
-      
-      {:ok, result} = Eval.evaluate(dataset,
-        metrics: [:faithfulness, :context_precision]
-      )
-      
+
+      {:ok, result} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness, :context_precision]
+        )
+
       # Should have attempted to run both metrics
       assert result.sample_count == 2
     end
 
     test "handles empty dataset" do
-      empty_dataset = Dataset.from_list([])
-      
+      {:ok, empty_dataset} = Dataset.InMemory.empty(:single_turn)
+
       {:ok, result} = Eval.evaluate(empty_dataset, metrics: [:faithfulness])
-      
+
       assert result.sample_count == 0
       assert result.completed_count == 0
       assert result.summary_stats == %{}
@@ -113,13 +120,14 @@ defmodule Jido.EvalTest do
 
     test "respects custom timeout" do
       dataset = sample_dataset()
-      
+
       # Short timeout that should work
-      {:ok, result} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        timeout: 30_000
-      )
-      
+      {:ok, result} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          timeout: 30_000
+        )
+
       assert result.sample_count == 2
     end
   end
@@ -127,19 +135,20 @@ defmodule Jido.EvalTest do
   describe "evaluate/2 asynchronous" do
     test "basic asynchronous evaluation" do
       dataset = sample_dataset()
-      
-      {:ok, run_id} = Eval.evaluate(dataset, 
-        metrics: [:faithfulness],
-        sync: false
-      )
-      
+
+      {:ok, run_id} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          sync: false
+        )
+
       assert is_binary(run_id)
-      
+
       # Should be able to get progress
       {:ok, progress} = Eval.get_progress(run_id)
       assert progress.run_id == run_id
       assert progress.total == 2
-      
+
       # Should be able to wait for completion
       {:ok, result} = Eval.await_result(run_id, 15_000)
       assert result.run_id == run_id
@@ -148,14 +157,15 @@ defmodule Jido.EvalTest do
 
     test "async evaluation with custom config" do
       dataset = sample_dataset()
-      
-      {:ok, run_id} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        sync: false,
-        llm: "test:async-model",
-        tags: %{"mode" => "async"}
-      )
-      
+
+      {:ok, run_id} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          sync: false,
+          llm: "test:async-model",
+          tags: %{"mode" => "async"}
+        )
+
       {:ok, result} = Eval.await_result(run_id, 15_000)
       assert result.config.model_spec == "test:async-model"
       assert result.config.tags["mode"] == "async"
@@ -165,14 +175,15 @@ defmodule Jido.EvalTest do
   describe "get_progress/1" do
     test "returns progress for running evaluation" do
       dataset = sample_dataset()
-      
-      {:ok, run_id} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        sync: false
-      )
-      
+
+      {:ok, run_id} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          sync: false
+        )
+
       {:ok, progress} = Eval.get_progress(run_id)
-      
+
       assert progress.run_id == run_id
       assert progress.total == 2
       assert is_integer(progress.completed)
@@ -188,14 +199,15 @@ defmodule Jido.EvalTest do
   describe "await_result/2" do
     test "waits for evaluation completion with default timeout" do
       dataset = sample_dataset()
-      
-      {:ok, run_id} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        sync: false
-      )
-      
+
+      {:ok, run_id} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          sync: false
+        )
+
       {:ok, result} = Eval.await_result(run_id)
-      
+
       assert result.run_id == run_id
       assert result.sample_count == 2
       assert %DateTime{} = result.finish_time
@@ -203,25 +215,27 @@ defmodule Jido.EvalTest do
 
     test "waits for evaluation completion with custom timeout" do
       dataset = sample_dataset()
-      
-      {:ok, run_id} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        sync: false
-      )
-      
+
+      {:ok, run_id} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          sync: false
+        )
+
       {:ok, result} = Eval.await_result(run_id, 20_000)
-      
+
       assert result.run_id == run_id
     end
 
     test "times out for very short timeout" do
       dataset = sample_dataset()
-      
-      {:ok, run_id} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        sync: false
-      )
-      
+
+      {:ok, run_id} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          sync: false
+        )
+
       {:error, :timeout} = Eval.await_result(run_id, 1)
     end
   end
@@ -229,18 +243,20 @@ defmodule Jido.EvalTest do
   describe "cancel/1" do
     test "cancels running evaluation" do
       dataset = sample_dataset()
-      
-      {:ok, run_id} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        sync: false
-      )
-      
+
+      {:ok, run_id} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          sync: false
+        )
+
       :ok = Eval.cancel(run_id)
-      
+
       # Progress should show cancelled or run should be not found
       case Eval.get_progress(run_id) do
         {:ok, progress} -> assert progress.cancelled == true
-        {:error, :not_found} -> :ok  # Already cleaned up
+        # Already cleaned up
+        {:error, :not_found} -> :ok
       end
     end
 
@@ -253,19 +269,20 @@ defmodule Jido.EvalTest do
     test "lists active evaluations" do
       {:ok, runs_before} = Eval.list_running()
       initial_count = length(runs_before)
-      
+
       dataset = sample_dataset()
-      
-      {:ok, run_id} = Eval.evaluate(dataset,
-        metrics: [:faithfulness],
-        sync: false
-      )
-      
+
+      {:ok, run_id} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          sync: false
+        )
+
       {:ok, runs_after} = Eval.list_running()
-      
+
       # Should have at least one more run
       assert length(runs_after) >= initial_count
-      
+
       # Should find our run
       our_run = Enum.find(runs_after, fn run -> run.run_id == run_id end)
       assert our_run != nil
@@ -275,11 +292,11 @@ defmodule Jido.EvalTest do
   describe "list_metrics/0" do
     test "returns available metrics" do
       {:ok, metrics} = Eval.list_metrics()
-      
+
       assert is_list(metrics)
       # Should have some built-in metrics
       assert length(metrics) > 0
-      
+
       # Each metric should be a module
       Enum.each(metrics, fn metric ->
         assert is_atom(metric)
@@ -293,9 +310,9 @@ defmodule Jido.EvalTest do
   describe "quick/2" do
     test "quick evaluation with default metrics" do
       dataset = sample_dataset()
-      
+
       {:ok, result} = Eval.quick(dataset)
-      
+
       assert result.sample_count == 2
       # Should use default faithfulness metric
       assert result.completed_count >= 0
@@ -303,17 +320,17 @@ defmodule Jido.EvalTest do
 
     test "quick evaluation with custom metrics" do
       dataset = sample_dataset()
-      
+
       {:ok, result} = Eval.quick(dataset, [:faithfulness, :context_precision])
-      
+
       assert result.sample_count == 2
     end
 
     test "quick evaluation is synchronous" do
       dataset = sample_dataset()
-      
+
       {:ok, result} = Eval.quick(dataset)
-      
+
       # Should have finish_time set (indicating synchronous completion)
       assert %DateTime{} = result.finish_time
     end
@@ -322,15 +339,16 @@ defmodule Jido.EvalTest do
   describe "error handling" do
     test "returns error for invalid metrics" do
       dataset = sample_dataset()
-      
+
       {:error, _reason} = Eval.evaluate(dataset, metrics: [:nonexistent_metric])
     end
 
     test "handles missing metrics parameter" do
       dataset = sample_dataset()
-      
+
       assert_raise KeyError, fn ->
-        Eval.evaluate(dataset, [])  # Missing required :metrics
+        # Missing required :metrics
+        Eval.evaluate(dataset, [])
       end
     end
   end
@@ -339,24 +357,26 @@ defmodule Jido.EvalTest do
     test "multiple concurrent evaluations" do
       dataset1 = sample_dataset()
       dataset2 = sample_dataset()
-      
-      {:ok, run_id1} = Eval.evaluate(dataset1,
-        metrics: [:faithfulness],
-        sync: false,
-        tags: %{"run" => "1"}
-      )
-      
-      {:ok, run_id2} = Eval.evaluate(dataset2,
-        metrics: [:faithfulness],
-        sync: false, 
-        tags: %{"run" => "2"}
-      )
-      
+
+      {:ok, run_id1} =
+        Eval.evaluate(dataset1,
+          metrics: [:faithfulness],
+          sync: false,
+          tags: %{"run" => "1"}
+        )
+
+      {:ok, run_id2} =
+        Eval.evaluate(dataset2,
+          metrics: [:faithfulness],
+          sync: false,
+          tags: %{"run" => "2"}
+        )
+
       assert run_id1 != run_id2
-      
+
       {:ok, result1} = Eval.await_result(run_id1, 15_000)
       {:ok, result2} = Eval.await_result(run_id2, 15_000)
-      
+
       assert result1.config.tags["run"] == "1"
       assert result2.config.tags["run"] == "2"
     end
@@ -364,22 +384,24 @@ defmodule Jido.EvalTest do
     test "sync and async evaluations can run concurrently" do
       dataset1 = sample_dataset()
       dataset2 = sample_dataset()
-      
+
       # Start async evaluation
-      {:ok, run_id} = Eval.evaluate(dataset1,
-        metrics: [:faithfulness],
-        sync: false
-      )
-      
+      {:ok, run_id} =
+        Eval.evaluate(dataset1,
+          metrics: [:faithfulness],
+          sync: false
+        )
+
       # Run sync evaluation while async is running
-      {:ok, sync_result} = Eval.evaluate(dataset2,
-        metrics: [:faithfulness],
-        sync: true
-      )
-      
+      {:ok, sync_result} =
+        Eval.evaluate(dataset2,
+          metrics: [:faithfulness],
+          sync: true
+        )
+
       # Both should complete successfully
       assert sync_result.sample_count == 2
-      
+
       {:ok, async_result} = Eval.await_result(run_id, 15_000)
       assert async_result.sample_count == 2
     end

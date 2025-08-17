@@ -124,7 +124,6 @@ defmodule Jido.Eval.Result do
       iex> result.config.tags
       %{"experiment" => "test"}
   """
-  @spec new(String.t(), Jido.Eval.Config.t() | nil) :: t()
   def new(run_id, config \\ nil) do
     %__MODULE__{
       run_id: run_id,
@@ -154,10 +153,11 @@ defmodule Jido.Eval.Result do
   @spec add_sample_result(t(), sample_result()) :: t()
   def add_sample_result(result, sample_result) do
     updated_results = [sample_result | result.sample_results]
-    
-    updated_result = %{result | 
-      sample_results: updated_results,
-      sample_count: result.sample_count + 1
+
+    updated_result = %{
+      result
+      | sample_results: updated_results,
+        sample_count: result.sample_count + 1
     }
 
     cond do
@@ -169,10 +169,8 @@ defmodule Jido.Eval.Result do
           category: categorize_error(sample_result.error),
           timestamp: DateTime.utc_now()
         }
-        %{updated_result | 
-          error_count: result.error_count + 1,
-          errors: [error | result.errors]
-        }
+
+        %{updated_result | error_count: result.error_count + 1, errors: [error | result.errors]}
 
       true ->
         %{updated_result | completed_count: result.completed_count + 1}
@@ -201,11 +199,13 @@ defmodule Jido.Eval.Result do
   @spec finalize(t(), keyword()) :: t()
   def finalize(result, _opts \\ []) do
     finish_time = DateTime.utc_now()
-    duration_ms = if result.start_time do
-      DateTime.diff(finish_time, result.start_time, :millisecond)
-    else
-      nil
-    end
+
+    duration_ms =
+      if result.start_time do
+        DateTime.diff(finish_time, result.start_time, :millisecond)
+      else
+        nil
+      end
 
     result
     |> Map.put(:finish_time, finish_time)
@@ -220,7 +220,7 @@ defmodule Jido.Eval.Result do
   # Private implementation functions
 
   defp calculate_summary_stats(result) do
-    summary_stats = 
+    summary_stats =
       result.sample_results
       |> Enum.reject(fn sample -> sample.error != nil end)
       |> Enum.reduce(%{}, fn sample, acc ->
@@ -236,24 +236,32 @@ defmodule Jido.Eval.Result do
     %{result | summary_stats: summary_stats}
   end
 
-  defp calculate_metric_stats([]), do: %{
-    mean: 0.0, median: 0.0, std_dev: 0.0, min: 0.0, max: 0.0,
-    p50: 0.0, p95: 0.0, p99: 0.0, count: 0
-  }
+  defp calculate_metric_stats([]),
+    do: %{
+      mean: 0.0,
+      median: 0.0,
+      std_dev: 0.0,
+      min: 0.0,
+      max: 0.0,
+      p50: 0.0,
+      p95: 0.0,
+      p99: 0.0,
+      count: 0
+    }
 
   defp calculate_metric_stats(scores) do
     sorted_scores = Enum.sort(scores)
     count = length(scores)
     mean = Enum.sum(scores) / count
-    
-    variance = 
+
+    variance =
       scores
       |> Enum.map(fn score -> :math.pow(score - mean, 2) end)
       |> Enum.sum()
       |> Kernel./(count)
-    
+
     std_dev = :math.sqrt(variance)
-    
+
     %{
       mean: mean,
       median: percentile(sorted_scores, 50),
@@ -268,55 +276,64 @@ defmodule Jido.Eval.Result do
   end
 
   defp calculate_latency_stats(result) do
-    latencies = 
+    latencies =
       result.sample_results
       |> Enum.filter(fn sample -> sample.latency_ms != nil end)
       |> Enum.map(fn sample -> sample.latency_ms end)
 
-    latency_stats = case latencies do
-      [] -> %{}
-      _ ->
-        sorted = Enum.sort(latencies)
-        avg = Enum.sum(latencies) / length(latencies)
-        
-        %{
-          avg_ms: avg,
-          median_ms: percentile(sorted, 50),
-          p95_ms: percentile(sorted, 95),
-          p99_ms: percentile(sorted, 99),
-          max_ms: List.last(sorted),
-          min_ms: List.first(sorted)
-        }
-    end
+    latency_stats =
+      case latencies do
+        [] ->
+          %{}
+
+        _ ->
+          sorted = Enum.sort(latencies)
+          avg = Enum.sum(latencies) / length(latencies)
+
+          %{
+            avg_ms: avg,
+            median_ms: percentile(sorted, 50),
+            p95_ms: percentile(sorted, 95),
+            p99_ms: percentile(sorted, 99),
+            max_ms: List.last(sorted),
+            min_ms: List.first(sorted)
+          }
+      end
 
     %{result | latency: latency_stats}
   end
 
   defp calculate_pass_rate(result) do
     completed_samples = Enum.filter(result.sample_results, fn sample -> sample.error == nil end)
-    
-    pass_rate = case completed_samples do
-      [] -> nil
-      samples ->
-        # Calculate overall pass rate based on metric thresholds
-        # For simplicity, we'll use 0.5 as threshold for all metrics
-        passing_samples = 
-          Enum.count(samples, fn sample ->
-            scores = Map.values(sample.scores)
-            case scores do
-              [] -> false
-              _ -> Enum.all?(scores, fn score -> score >= 0.5 end)
-            end
-          end)
-        
-        passing_samples / length(samples)
-    end
+
+    # Only calculate pass rate if we have samples with actual scores
+    samples_with_scores =
+      Enum.filter(completed_samples, fn sample ->
+        map_size(sample.scores) > 0
+      end)
+
+    pass_rate =
+      case samples_with_scores do
+        [] ->
+          nil
+
+        samples ->
+          # Calculate overall pass rate based on metric thresholds
+          # For simplicity, we'll use 0.5 as threshold for all metrics
+          passing_samples =
+            Enum.count(samples, fn sample ->
+              scores = Map.values(sample.scores)
+              Enum.all?(scores, fn score -> score >= 0.5 end)
+            end)
+
+          passing_samples / length(samples)
+      end
 
     %{result | pass_rate: pass_rate}
   end
 
   defp categorize_errors(result) do
-    error_categories = 
+    error_categories =
       result.errors
       |> Enum.group_by(fn error -> error.category end)
       |> Enum.into(%{}, fn {category, errors} -> {category, length(errors)} end)
@@ -325,20 +342,20 @@ defmodule Jido.Eval.Result do
   end
 
   defp finalize_tag_stats(result) do
-    by_tag = 
+    by_tag =
       result.by_tag
       |> Enum.into(%{}, fn {tag_value, stats} ->
         completed = stats[:completed] || 0
         total = stats[:total] || 0
         scores = stats[:scores] || []
-        
+
         tag_stats = %{
           sample_count: total,
           avg_score: if(scores == [], do: nil, else: Enum.sum(scores) / length(scores)),
           pass_rate: if(total == 0, do: nil, else: completed / total),
           error_rate: if(total == 0, do: nil, else: (total - completed) / total)
         }
-        
+
         {tag_value, tag_stats}
       end)
 
@@ -346,23 +363,26 @@ defmodule Jido.Eval.Result do
   end
 
   defp update_tag_stats(result, sample_result) do
-    by_tag = 
+    by_tag =
       sample_result.tags
       |> Enum.reduce(result.by_tag, fn {tag_key, tag_value}, acc ->
         key = "#{tag_key}:#{tag_value}"
         current = Map.get(acc, key, %{total: 0, completed: 0, scores: []})
-        
+
         updated = %{
           total: current[:total] + 1,
-          completed: current[:completed] + (if sample_result.error == nil, do: 1, else: 0),
-          scores: case sample_result.error do
-            nil -> 
-              new_scores = sample_result.scores |> Map.values()
-              (current[:scores] || []) ++ new_scores
-            _ -> current[:scores] || []
-          end
+          completed: current[:completed] + if(sample_result.error == nil, do: 1, else: 0),
+          scores:
+            case sample_result.error do
+              nil ->
+                new_scores = sample_result.scores |> Map.values()
+                (current[:scores] || []) ++ new_scores
+
+              _ ->
+                current[:scores] || []
+            end
         }
-        
+
         Map.put(acc, key, updated)
       end)
 
@@ -383,20 +403,21 @@ defmodule Jido.Eval.Result do
 
   defp percentile([], _), do: 0.0
   defp percentile([single], _), do: single
+
   defp percentile(sorted_list, percentile) when percentile >= 0 and percentile <= 100 do
     count = length(sorted_list)
-    index = (percentile / 100) * (count - 1)
-    
+    index = percentile / 100 * (count - 1)
+
     lower_index = trunc(index)
     upper_index = min(lower_index + 1, count - 1)
-    
+
     if lower_index == upper_index do
       Enum.at(sorted_list, lower_index)
     else
       lower_value = Enum.at(sorted_list, lower_index)
       upper_value = Enum.at(sorted_list, upper_index)
       weight = index - lower_index
-      
+
       lower_value + weight * (upper_value - lower_value)
     end
   end

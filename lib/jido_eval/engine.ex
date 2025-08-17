@@ -29,7 +29,7 @@ defmodule Jido.Eval.Engine do
   """
 
   require Logger
-  
+
   alias Jido.Eval.{Config, Result, Dataset}
   alias Jido.Eval.Engine.WorkerPool
 
@@ -65,8 +65,8 @@ defmodule Jido.Eval.Engine do
       # Monitor progress
       :telemetry.attach([:jido, :eval, :progress], handler_fn, nil)
   """
-  @spec start_evaluation(Dataset.t(), Config.t(), [atom()], keyword()) :: 
-    {:ok, String.t()} | {:error, term()}
+  @spec start_evaluation(Dataset.t(), Config.t(), [atom()], keyword()) ::
+          {:ok, String.t()} | {:error, term()}
   def start_evaluation(dataset, config, metrics, opts \\ []) do
     with {:ok, config} <- Config.ensure_run_id(config),
          {:ok, _pid} <- start_worker_pool(config, dataset, metrics, opts) do
@@ -103,8 +103,8 @@ defmodule Jido.Eval.Engine do
 
       IO.inspect(result.summary_stats)
   """
-  @spec evaluate_sync(Dataset.t(), Config.t(), [atom()], keyword()) :: 
-    {:ok, Result.t()} | {:error, term()}
+  @spec evaluate_sync(Dataset.t(), Config.t(), [atom()], keyword()) ::
+          {:ok, Result.t()} | {:error, term()}
   def evaluate_sync(dataset, config, metrics, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, config.run_config.timeout)
 
@@ -225,7 +225,7 @@ defmodule Jido.Eval.Engine do
   """
   @spec list_running() :: {:ok, [map()]}
   def list_running do
-    runs = 
+    runs =
       Registry.select(@registry_name, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
       |> Enum.map(fn {run_id, pid} ->
         try do

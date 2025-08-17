@@ -91,6 +91,44 @@ defmodule Jido.Eval.ComponentRegistry do
   end
 
   @doc """
+  Register a component with a custom name/alias.
+
+  ## Parameters
+
+  - `type` - Component type
+  - `name` - Name/alias for the component
+  - `module` - Component module
+
+  ## Returns
+
+  - `:ok` - Component registered successfully
+  - `{:error, reason}` - Registration failed
+
+  ## Examples
+
+      iex> Jido.Eval.ComponentRegistry.register(:metric, :faithfulness, Jido.Eval.Metrics.Faithfulness)
+      :ok
+  """
+  @spec register(component_type(), component_name(), module()) :: :ok | {:error, any()}
+  def register(type, name, module)
+      when type in [:reporter, :store, :broadcaster, :processor, :middleware, :metric] do
+    ensure_table_exists()
+
+    case validate_component(type, module) do
+      :ok ->
+        :ets.insert(@table_name, {{type, name}, module})
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def register(type, _name, _module) do
+    {:error, {:invalid_type, type}}
+  end
+
+  @doc """
   Lookup a registered component.
 
   ## Parameters

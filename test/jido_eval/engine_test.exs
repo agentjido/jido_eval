@@ -1,6 +1,6 @@
 defmodule Jido.Eval.EngineTest do
   use ExUnit.Case, async: false
-  
+
   alias Jido.Eval.{Engine, Config, RunConfig, Dataset, Sample}
 
   # Test fixtures
@@ -14,15 +14,16 @@ defmodule Jido.Eval.EngineTest do
         tags: %{"category" => "geography"}
       },
       %Sample.SingleTurn{
-        id: "sample_2", 
+        id: "sample_2",
         user_input: "What is 2+2?",
         response: "2+2 equals 4.",
         retrieved_contexts: ["Basic arithmetic: 2+2=4"],
         tags: %{"category" => "math"}
       }
     ]
-    
-    Dataset.from_list(samples)
+
+    {:ok, dataset} = Dataset.InMemory.new(samples)
+    dataset
   end
 
   defp test_config(opts \\ []) do
@@ -38,7 +39,7 @@ defmodule Jido.Eval.EngineTest do
 
   setup do
     # Ensure engine is started
-    {:ok, _pid} = Engine.start()
+    :ok = Engine.start()
     :ok
   end
 
@@ -47,12 +48,12 @@ defmodule Jido.Eval.EngineTest do
       dataset = sample_dataset()
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, run_id} = Engine.start_evaluation(dataset, config, metrics)
-      
+
       assert is_binary(run_id)
       assert byte_size(run_id) > 0
-      
+
       # Should be able to get progress
       {:ok, progress} = Engine.get_progress(run_id)
       assert progress.run_id == run_id
@@ -64,7 +65,7 @@ defmodule Jido.Eval.EngineTest do
       dataset = sample_dataset()
       config = test_config()
       invalid_metrics = [:nonexistent_metric]
-      
+
       {:error, reason} = Engine.start_evaluation(dataset, config, invalid_metrics)
       assert reason == {:invalid_metrics, {:unknown_metrics, [:nonexistent_metric]}}
     end
@@ -73,10 +74,11 @@ defmodule Jido.Eval.EngineTest do
       dataset = sample_dataset()
       config = %Config{test_config() | run_id: nil}
       metrics = [:faithfulness]
-      
+
       {:ok, run_id} = Engine.start_evaluation(dataset, config, metrics)
       assert is_binary(run_id)
-      assert String.contains?(run_id, "-") # UUID format
+      # UUID format
+      assert String.contains?(run_id, "-")
     end
   end
 
@@ -85,9 +87,9 @@ defmodule Jido.Eval.EngineTest do
       dataset = sample_dataset()
       config = test_config(timeout: 15_000)
       metrics = [:faithfulness]
-      
+
       {:ok, result} = Engine.evaluate_sync(dataset, config, metrics)
-      
+
       assert result.run_id == config.run_id
       assert result.sample_count == 2
       assert result.completed_count <= 2
@@ -99,31 +101,34 @@ defmodule Jido.Eval.EngineTest do
     @tag :slow
     test "respects timeout" do
       dataset = sample_dataset()
-      config = test_config(timeout: 1_000) # Very short timeout
+      # Very short timeout
+      config = test_config(timeout: 1_000)
       metrics = [:faithfulness]
-      
+
       # This may timeout depending on LLM response time
       result = Engine.evaluate_sync(dataset, config, metrics, timeout: 1_000)
-      
+
       case result do
-        {:ok, _result} -> 
+        {:ok, _result} ->
           # Evaluation completed within timeout
           :ok
+
         {:error, :timeout} ->
           # Expected timeout
           :ok
+
         other ->
           flunk("Unexpected result: #{inspect(other)}")
       end
     end
 
     test "handles dataset with zero samples" do
-      empty_dataset = Dataset.from_list([])
+      {:ok, empty_dataset} = Dataset.InMemory.empty(:single_turn)
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, result} = Engine.evaluate_sync(empty_dataset, config, metrics)
-      
+
       assert result.sample_count == 0
       assert result.completed_count == 0
       assert result.summary_stats == %{}
@@ -135,11 +140,11 @@ defmodule Jido.Eval.EngineTest do
       dataset = sample_dataset()
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, run_id} = Engine.start_evaluation(dataset, config, metrics)
-      
+
       {:ok, progress} = Engine.get_progress(run_id)
-      
+
       assert progress.run_id == run_id
       assert progress.total == 2
       assert is_integer(progress.completed)
@@ -158,11 +163,11 @@ defmodule Jido.Eval.EngineTest do
       dataset = sample_dataset()
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, run_id} = Engine.start_evaluation(dataset, config, metrics)
-      
+
       {:ok, result} = Engine.await_result(run_id, 15_000)
-      
+
       assert result.run_id == run_id
       assert result.sample_count == 2
       assert %DateTime{} = result.finish_time
@@ -172,9 +177,9 @@ defmodule Jido.Eval.EngineTest do
       dataset = sample_dataset()
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, run_id} = Engine.start_evaluation(dataset, config, metrics)
-      
+
       # Very short timeout
       {:error, :timeout} = Engine.await_result(run_id, 1)
     end
@@ -189,15 +194,16 @@ defmodule Jido.Eval.EngineTest do
       dataset = sample_dataset()
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, run_id} = Engine.start_evaluation(dataset, config, metrics)
-      
+
       :ok = Engine.cancel_evaluation(run_id)
-      
+
       # Should be able to get progress showing cancelled status
       case Engine.get_progress(run_id) do
         {:ok, progress} -> assert progress.cancelled == true
-        {:error, :not_found} -> :ok  # Already cleaned up
+        # Already cleaned up
+        {:error, :not_found} -> :ok
       end
     end
 
@@ -210,17 +216,17 @@ defmodule Jido.Eval.EngineTest do
     test "lists active evaluations" do
       {:ok, runs_before} = Engine.list_running()
       initial_count = length(runs_before)
-      
+
       dataset = sample_dataset()
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, run_id} = Engine.start_evaluation(dataset, config, metrics)
-      
+
       {:ok, runs_after} = Engine.list_running()
-      
+
       assert length(runs_after) >= initial_count
-      
+
       # Should find our run in the list
       our_run = Enum.find(runs_after, fn run -> run.run_id == run_id end)
       assert our_run != nil
@@ -243,16 +249,16 @@ defmodule Jido.Eval.EngineTest do
       config1 = test_config(tags: %{"run" => "1"})
       config2 = test_config(tags: %{"run" => "2"})
       metrics = [:faithfulness]
-      
+
       {:ok, run_id1} = Engine.start_evaluation(dataset1, config1, metrics)
       {:ok, run_id2} = Engine.start_evaluation(dataset2, config2, metrics)
-      
+
       assert run_id1 != run_id2
-      
+
       # Both should complete successfully
       {:ok, result1} = Engine.await_result(run_id1, 15_000)
       {:ok, result2} = Engine.await_result(run_id2, 15_000)
-      
+
       assert result1.run_id == run_id1
       assert result2.run_id == run_id2
       assert result1.config.tags["run"] == "1"
@@ -262,26 +268,27 @@ defmodule Jido.Eval.EngineTest do
     @tag :slow
     test "handles worker failures gracefully" do
       # Create a larger dataset to ensure worker failures can be observed
-      large_samples = 1..10
-      |> Enum.map(fn i ->
-        %Sample.SingleTurn{
-          id: "sample_#{i}",
-          user_input: "Question #{i}",
-          response: "Answer #{i}",
-          retrieved_contexts: ["Context #{i}"],
-          tags: %{"batch" => "large"}
-        }
-      end)
-      
-      large_dataset = Dataset.from_list(large_samples)
+      large_samples =
+        1..10
+        |> Enum.map(fn i ->
+          %Sample.SingleTurn{
+            id: "sample_#{i}",
+            user_input: "Question #{i}",
+            response: "Answer #{i}",
+            retrieved_contexts: ["Context #{i}"],
+            tags: %{"batch" => "large"}
+          }
+        end)
+
+      {:ok, large_dataset} = Dataset.InMemory.new(large_samples)
       config = test_config(max_workers: 4, timeout: 20_000)
       metrics = [:faithfulness]
-      
+
       {:ok, run_id} = Engine.start_evaluation(large_dataset, config, metrics)
-      
+
       # Even if some workers fail, evaluation should complete
       {:ok, result} = Engine.await_result(run_id, 30_000)
-      
+
       assert result.sample_count == 10
       # Some samples should complete even if workers fail
       assert result.completed_count >= 0
@@ -298,18 +305,18 @@ defmodule Jido.Eval.EngineTest do
           tags: %{"category" => "test", "priority" => "high"}
         }
       ]
-      
-      dataset = Dataset.from_list(samples_with_metadata)
+
+      {:ok, dataset} = Dataset.InMemory.new(samples_with_metadata)
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, result} = Engine.evaluate_sync(dataset, config, metrics)
-      
+
       sample_result = hd(result.sample_results)
       assert sample_result.sample_id == "meta_sample_1"
       assert sample_result.tags["category"] == "test"
       assert sample_result.tags["priority"] == "high"
-      
+
       # Tag statistics should be computed
       assert Map.has_key?(result.by_tag, "category:test")
       assert Map.has_key?(result.by_tag, "priority:high")
@@ -319,19 +326,20 @@ defmodule Jido.Eval.EngineTest do
   describe "error handling" do
     test "handles malformed dataset gracefully" do
       # This would depend on Dataset implementation, but test conceptually
-      empty_dataset = Dataset.from_list([])
+      {:ok, empty_dataset} = Dataset.InMemory.empty(:single_turn)
       config = test_config()
       metrics = [:faithfulness]
-      
+
       {:ok, result} = Engine.evaluate_sync(empty_dataset, config, metrics)
       assert result.sample_count == 0
     end
 
     test "handles configuration errors" do
       dataset = sample_dataset()
-      config = %Config{} # Invalid configuration
+      # Invalid configuration
+      config = %Config{}
       metrics = [:faithfulness]
-      
+
       # Should handle gracefully and generate run_id
       {:ok, run_id} = Engine.start_evaluation(dataset, config, metrics)
       assert is_binary(run_id)

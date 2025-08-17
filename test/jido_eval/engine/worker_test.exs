@@ -25,17 +25,20 @@ defmodule Jido.Eval.Engine.WorkerTest do
   setup do
     # Start a mock pool process to receive results
     {:ok, pool_pid} = Agent.start_link(fn -> [] end)
-    
+
     # Capture messages sent to pool
     test_pid = self()
-    pool_wrapper = spawn_link(fn ->
-      receive do
-        {:worker_result, worker_pid, result} ->
-          send(test_pid, {:worker_result, worker_pid, result})
-        {:worker_error, worker_pid, error} ->
-          send(test_pid, {:worker_error, worker_pid, error})
-      end
-    end)
+
+    pool_wrapper =
+      spawn_link(fn ->
+        receive do
+          {:worker_result, worker_pid, result} ->
+            send(test_pid, {:worker_result, worker_pid, result})
+
+          {:worker_error, worker_pid, error} ->
+            send(test_pid, {:worker_error, worker_pid, error})
+        end
+      end)
 
     %{pool_pid: pool_wrapper}
   end
@@ -106,13 +109,14 @@ defmodule Jido.Eval.Engine.WorkerTest do
     test "handles sample with missing required fields", %{pool_pid: pool_pid} do
       opts = [
         run_id: "test_run",
-        metrics: [:faithfulness], # Requires response and retrieved_contexts
+        # Requires response and retrieved_contexts
+        metrics: [:faithfulness],
         config: test_config(),
         pool_pid: pool_pid
       ]
 
       {:ok, worker_pid} = Worker.start_link(opts)
-      
+
       # Sample missing required fields
       incomplete_sample = %Sample.SingleTurn{
         id: "incomplete_sample",
@@ -136,7 +140,8 @@ defmodule Jido.Eval.Engine.WorkerTest do
         metrics: [:faithfulness],
         config: test_config(),
         pool_pid: pool_pid,
-        timeout: 100  # Very short timeout
+        # Very short timeout
+        timeout: 100
       ]
 
       {:ok, worker_pid} = Worker.start_link(opts)
@@ -205,7 +210,7 @@ defmodule Jido.Eval.Engine.WorkerTest do
 
       # Cancel first
       GenServer.cast(worker_pid, :cancel)
-      
+
       # Then try to evaluate
       GenServer.cast(worker_pid, {:evaluate_sample, test_sample()})
 
@@ -221,7 +226,8 @@ defmodule Jido.Eval.Engine.WorkerTest do
         metrics: [:faithfulness],
         config: test_config(),
         pool_pid: pool_pid,
-        timeout: 10_000  # Long timeout so we can cancel
+        # Long timeout so we can cancel
+        timeout: 10_000
       ]
 
       {:ok, worker_pid} = Worker.start_link(opts)
@@ -229,20 +235,20 @@ defmodule Jido.Eval.Engine.WorkerTest do
 
       # Start processing
       GenServer.cast(worker_pid, {:evaluate_sample, sample})
-      
+
       # Give it a moment to start
       Process.sleep(100)
-      
+
       # Cancel
       GenServer.cast(worker_pid, :cancel)
 
       # Should not receive result or receive cancelled result
       receive do
-        {:worker_result, ^worker_pid, _result} -> 
+        {:worker_result, ^worker_pid, _result} ->
           # If we do receive result, processing completed before cancel
           :ok
       after
-        2_000 -> 
+        2_000 ->
           # No result received, cancel was effective
           :ok
       end
@@ -252,7 +258,7 @@ defmodule Jido.Eval.Engine.WorkerTest do
   describe "error scenarios" do
     test "handles task crashes gracefully", %{pool_pid: pool_pid} do
       opts = [
-        run_id: "test_run", 
+        run_id: "test_run",
         metrics: [:faithfulness],
         config: test_config(),
         pool_pid: pool_pid
@@ -263,7 +269,8 @@ defmodule Jido.Eval.Engine.WorkerTest do
       # Create a sample that might cause processing to fail
       problematic_sample = %Sample.SingleTurn{
         id: "crash_sample",
-        user_input: nil,  # This might cause crashes in processing
+        # This might cause crashes in processing
+        user_input: nil,
         response: "Answer",
         retrieved_contexts: ["Context"],
         tags: %{}
@@ -315,7 +322,7 @@ defmodule Jido.Eval.Engine.WorkerTest do
       # Attach telemetry handler
       test_pid = self()
       handler_id = :worker_telemetry_test
-      
+
       :telemetry.attach_many(
         handler_id,
         [

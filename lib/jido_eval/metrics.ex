@@ -32,6 +32,12 @@ defmodule Jido.Eval.Metrics do
     ContextPrecision
   ]
 
+  # Metric aliases for convenient access
+  @metric_aliases %{
+    Faithfulness => :faithfulness,
+    ContextPrecision => :context_precision
+  }
+
   @doc """
   Register all built-in metrics with the ComponentRegistry.
 
@@ -54,14 +60,25 @@ defmodule Jido.Eval.Metrics do
     results =
       @built_in_metrics
       |> Enum.map(fn metric ->
-        case ComponentRegistry.register(:metric, metric) do
-          :ok ->
-            Logger.debug("Registered metric: #{metric.name()}")
+        # Register by module name
+        module_result = ComponentRegistry.register(:metric, metric)
+
+        # Also register by atom alias for convenient usage
+        alias_atom = get_metric_alias(metric)
+        alias_result = ComponentRegistry.register(:metric, alias_atom, metric)
+
+        case {module_result, alias_result} do
+          {:ok, :ok} ->
+            Logger.debug("Registered metric: #{metric.name()} (#{metric}, :#{alias_atom})")
             :ok
 
-          {:error, reason} ->
+          {{:error, reason}, _} ->
             Logger.warning("Failed to register metric #{metric}: #{inspect(reason)}")
             {:error, {metric, reason}}
+
+          {_, {:error, reason}} ->
+            Logger.warning("Failed to register metric alias #{alias_atom}: #{inspect(reason)}")
+            {:error, {alias_atom, reason}}
         end
       end)
 
@@ -201,5 +218,10 @@ defmodule Jido.Eval.Metrics do
   @spec built_in_metrics() :: [module()]
   def built_in_metrics do
     @built_in_metrics
+  end
+
+  # Helper function to get metric alias
+  defp get_metric_alias(metric) do
+    Map.get(@metric_aliases, metric, metric)
   end
 end

@@ -38,7 +38,7 @@ defmodule Jido.Eval.Engine.Worker do
   use GenServer
   require Logger
 
-  alias Jido.Eval.{Config, Metric, LLM}
+  alias Jido.Eval.Metric
 
   defstruct [
     :run_id,
@@ -105,13 +105,13 @@ defmodule Jido.Eval.Engine.Worker do
       # Start sample processing
       start_time = System.monotonic_time(:millisecond)
       updated_state = %{state | current_sample: sample, start_time: start_time}
-      
+
       # Process sample asynchronously to avoid blocking
       task = Task.async(fn -> process_sample(sample, updated_state) end)
-      
+
       # Set timeout for sample processing
       Process.send_after(self(), {:timeout, task.ref}, state.timeout)
-      
+
       {:noreply, %{updated_state | current_sample: {sample, task}}}
     end
   end
@@ -119,16 +119,18 @@ defmodule Jido.Eval.Engine.Worker do
   @impl true
   def handle_cast(:cancel, state) do
     Logger.debug("Cancelling worker for run #{state.run_id}")
-    
+
     # Cancel current processing if active
-    state = case state.current_sample do
-      {_sample, %Task{} = task} ->
-        Task.shutdown(task, :brutal_kill)
-        %{state | current_sample: nil}
-      _ ->
-        state
-    end
-    
+    state =
+      case state.current_sample do
+        {_sample, %Task{} = task} ->
+          Task.shutdown(task, :brutal_kill)
+          %{state | current_sample: nil}
+
+        _ ->
+          state
+      end
+
     {:noreply, %{state | cancelled: true}}
   end
 
@@ -136,11 +138,13 @@ defmodule Jido.Eval.Engine.Worker do
   def handle_info({:timeout, task_ref}, state) do
     case state.current_sample do
       {sample, %Task{ref: ^task_ref}} ->
-        Logger.warning("Worker timeout processing sample #{sample.id || "unknown"} in run #{state.run_id}")
-        
+        Logger.warning(
+          "Worker timeout processing sample #{sample.id || "unknown"} in run #{state.run_id}"
+        )
+
         # Kill the task
         Task.shutdown(elem(state.current_sample, 1), :brutal_kill)
-        
+
         # Report timeout error
         error_result = %{
           sample_id: sample.id,
@@ -150,11 +154,11 @@ defmodule Jido.Eval.Engine.Worker do
           tags: sample.tags || %{},
           metadata: %{timeout: true}
         }
-        
+
         send(state.pool_pid, {:worker_result, self(), error_result})
-        
+
         {:noreply, %{state | current_sample: nil, start_time: nil}}
-      
+
       _ ->
         # Stale timeout message, ignore
         {:noreply, state}
@@ -169,9 +173,9 @@ defmodule Jido.Eval.Engine.Worker do
         # Process and send result
         Process.demonitor(ref, [:flush])
         send(state.pool_pid, {:worker_result, self(), result})
-        
+
         {:noreply, %{state | current_sample: nil, start_time: nil}}
-      
+
       _ ->
         # Unexpected result, ignore
         {:noreply, state}
@@ -183,21 +187,27 @@ defmodule Jido.Eval.Engine.Worker do
     # Task failed or was killed
     case state.current_sample do
       {sample, %Task{ref: ^ref}} ->
-        Logger.warning("Worker task failed for sample #{sample.id || "unknown"}: #{inspect(reason)}")
-        
+        Logger.warning(
+          "Worker task failed for sample #{sample.id || "unknown"}: #{inspect(reason)}"
+        )
+
         error_result = %{
           sample_id: sample.id,
           scores: %{},
-          latency_ms: if(state.start_time, do: System.monotonic_time(:millisecond) - state.start_time, else: 0),
+          latency_ms:
+            if(state.start_time,
+              do: System.monotonic_time(:millisecond) - state.start_time,
+              else: 0
+            ),
           error: "Worker task failed: #{inspect(reason)}",
           tags: sample.tags || %{},
           metadata: %{task_failure: true}
         }
-        
+
         send(state.pool_pid, {:worker_result, self(), error_result})
-        
+
         {:noreply, %{state | current_sample: nil, start_time: nil}}
-      
+
       _ ->
         {:noreply, state}
     end
@@ -210,16 +220,16 @@ defmodule Jido.Eval.Engine.Worker do
 
   defp process_sample(sample, state) do
     start_time = System.monotonic_time(:millisecond)
-    
+
     try do
       # Validate sample for all metrics
       validation_results = validate_sample_for_metrics(sample, state.metrics)
-      
+
       case validation_results do
         :ok ->
           # Process each metric
-          scores = evaluate_metrics(sample, state.metrics, state.config)
-          
+          scores = evaluate_metrics(sample, state.metrics, state.config, state.run_id)
+
           %{
             sample_id: sample.id,
             scores: scores,
@@ -228,7 +238,7 @@ defmodule Jido.Eval.Engine.Worker do
             tags: sample.tags || %{},
             metadata: %{}
           }
-        
+
         {:error, reason} ->
           %{
             sample_id: sample.id,
@@ -254,7 +264,7 @@ defmodule Jido.Eval.Engine.Worker do
 
   defp validate_sample_for_metrics(sample, metrics) do
     # Get metric modules from registry
-    metric_modules = 
+    metric_modules =
       metrics
       |> Enum.map(fn metric_name ->
         case Jido.Eval.ComponentRegistry.lookup(:metric, metric_name) do
@@ -265,11 +275,15 @@ defmodule Jido.Eval.Engine.Worker do
 
     # Check for unknown metrics
     case Enum.find(metric_modules, &match?({:error, _}, &1)) do
-      {:error, reason} -> {:error, reason}
-      nil -> 
+      {:error, reason} ->
+        {:error, reason}
+
+      nil ->
         # Validate sample for each metric
         metric_modules
-        |> Enum.map(fn {metric_name, module} -> {metric_name, Metric.validate_sample(sample, module)} end)
+        |> Enum.map(fn {metric_name, module} ->
+          {metric_name, Metric.validate_sample(sample, module)}
+        end)
         |> Enum.find(fn {_name, result} -> match?({:error, _}, result) end)
         |> case do
           {metric_name, {:error, reason}} -> {:error, {metric_name, reason}}
@@ -278,58 +292,62 @@ defmodule Jido.Eval.Engine.Worker do
     end
   end
 
-  defp evaluate_metrics(sample, metrics, config) do
+  defp evaluate_metrics(sample, metrics, config, run_id) do
     metrics
-    |> Enum.map(fn metric_name -> 
-      {metric_name, evaluate_single_metric(sample, metric_name, config)}
+    |> Enum.map(fn metric_name ->
+      {metric_name, evaluate_single_metric(sample, metric_name, config, run_id)}
     end)
     |> Enum.reduce(%{}, fn {metric_name, result}, acc ->
       case result do
-        {:ok, score} -> Map.put(acc, metric_name, score)
-        {:error, reason} -> 
+        {:ok, score} ->
+          Map.put(acc, metric_name, score)
+
+        {:error, reason} ->
           Logger.warning("Metric #{metric_name} failed: #{inspect(reason)}")
           acc
       end
     end)
   end
 
-  defp evaluate_single_metric(sample, metric_name, config) do
+  defp evaluate_single_metric(sample, metric_name, config, run_id) do
     # Get metric module from registry
     with {:ok, metric_module} <- Jido.Eval.ComponentRegistry.lookup(:metric, metric_name) do
       metric_start_time = System.monotonic_time(:millisecond)
-      
+
       # Emit metric start telemetry
       :telemetry.execute(
         [:jido, :eval, :metric, :start],
         %{},
         %{
-          run_id: config.run_id,
+          run_id: run_id,
           sample_id: sample.id,
           metric: metric_name
         }
       )
 
       # Execute metric with middleware
-      result = execute_with_middleware(
-        config.middleware,
-        fn -> metric_module.evaluate(sample, config, []) end,
-        %{metric: metric_name, sample: sample, config: config}
-      )
+      result =
+        execute_with_middleware(
+          config.middleware,
+          fn -> metric_module.evaluate(sample, config, []) end,
+          %{metric: metric_name, sample: sample, config: config}
+        )
 
       # Calculate metric latency
       metric_duration = System.monotonic_time(:millisecond) - metric_start_time
 
       # Emit metric completion telemetry
-      metric_measurements = case result do
-        {:ok, score} -> %{duration_ms: metric_duration, score: score}
-        {:error, _} -> %{duration_ms: metric_duration}
-      end
+      metric_measurements =
+        case result do
+          {:ok, score} -> %{duration_ms: metric_duration, score: score}
+          {:error, _} -> %{duration_ms: metric_duration}
+        end
 
       :telemetry.execute(
         [:jido, :eval, :metric, :stop],
         metric_measurements,
         %{
-          run_id: config.run_id,
+          run_id: run_id,
           sample_id: sample.id,
           metric: metric_name,
           success: match?({:ok, _}, result)

@@ -98,18 +98,18 @@ defmodule Jido.Eval do
         sync: false
       )
   """
-  @spec evaluate(Dataset.t(), keyword()) :: 
-    {:ok, Jido.Eval.Result.t()} | {:ok, String.t()} | {:error, term()}
+  @spec evaluate(Dataset.t(), keyword()) ::
+          {:ok, Jido.Eval.Result.t()} | {:ok, String.t()} | {:error, term()}
   def evaluate(dataset, opts) do
     metrics = Keyword.fetch!(opts, :metrics)
     config = build_config(opts)
     sync = Keyword.get(opts, :sync, true)
-    
+
     case sync do
       true ->
         timeout = Keyword.get(opts, :timeout, config.run_config.timeout)
         Engine.evaluate_sync(dataset, config, metrics, timeout: timeout)
-      
+
       false ->
         Engine.start_evaluation(dataset, config, metrics, opts)
     end
@@ -153,8 +153,8 @@ defmodule Jido.Eval do
       {:ok, result} = Jido.Eval.await_result(run_id)
       {:ok, result} = Jido.Eval.await_result(run_id, 60_000)
   """
-  @spec await_result(String.t(), non_neg_integer()) :: 
-    {:ok, Jido.Eval.Result.t()} | {:error, term()}
+  @spec await_result(String.t(), non_neg_integer()) ::
+          {:ok, Jido.Eval.Result.t()} | {:error, term()}
   def await_result(run_id, timeout \\ 30_000) do
     Engine.await_result(run_id, timeout)
   end
@@ -239,9 +239,9 @@ defmodule Jido.Eval do
 
   defp build_config(opts) do
     base_config = Keyword.get(opts, :config, %Config{})
-    
+
     # Apply option overrides
-    config = 
+    config =
       base_config
       |> maybe_update(:model_spec, Keyword.get(opts, :llm))
       |> maybe_update(:reporters, Keyword.get(opts, :reporters))
@@ -260,10 +260,12 @@ defmodule Jido.Eval do
   defp maybe_update(config, field, value), do: Map.put(config, field, value)
 
   defp maybe_update_run_config(config, nil), do: config
+
   defp maybe_update_run_config(config, run_config_updates) when is_map(run_config_updates) do
     updated_run_config = Map.merge(config.run_config, run_config_updates)
     Map.put(config, :run_config, updated_run_config)
   end
+
   defp maybe_update_run_config(config, run_config_updates) when is_list(run_config_updates) do
     updated_run_config = struct(config.run_config, run_config_updates)
     Map.put(config, :run_config, updated_run_config)
