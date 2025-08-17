@@ -37,15 +37,67 @@ Jido Eval is an Elixir package for evaluating LLMs. It follows the Ragas SDK (Py
 
 ## Architecture
 
-__TODO__
+Jido Eval follows a **pluggable component architecture** with clean separation of concerns:
+
+- **Core Data Layer**: Sample structures and Dataset protocol for flexible data sources
+- **Component System**: Pluggable behaviours for reporters, stores, broadcasters, processors, middleware
+- **Execution Engine**: OTP-supervised evaluation with fault isolation and concurrency control
+- **LLM Integration**: Retry-enabled wrapper around jido_ai with caching and error normalization
 
 ## Public API Overview
 
-__TODO__
+### Simple Evaluation (Ragas-compatible)
+```elixir
+# Quick evaluation with defaults
+{:ok, result} = Jido.Eval.evaluate(dataset)
+
+# With specific metrics
+{:ok, result} = Jido.Eval.evaluate(dataset, metrics: [:faithfulness, :context_precision])
+```
+
+### Advanced Configuration
+```elixir
+# Enterprise features with pluggable components
+{:ok, result} = Jido.Eval.evaluate(dataset, 
+  metrics: [:faithfulness, :context_precision],
+  llm: "openai:gpt-4o",
+  run_config: %Jido.Eval.RunConfig{timeout: 30_000},
+  reporters: [{MyApp.JSONReporter, format: :json}],
+  stores: [{MyApp.PostgresStore, table: "evaluations"}],
+  broadcasters: [{Phoenix.PubSub, topic: "evals"}]
+)
+```
+
+### Async Evaluation with Monitoring
+```elixir
+# Async evaluation with real-time monitoring
+{:ok, run_id} = Jido.Eval.evaluate(dataset, sync: false)
+:telemetry.attach([:jido, :eval, :progress], fn event, measurements, metadata, _ ->
+  IO.puts("Progress: #{metadata.completed}/#{metadata.total}")
+end)
+```
 
 ## Data Architecture
 
-__TODO__
+### Sample Structures
+- **`Jido.Eval.Sample.SingleTurn`**: Single Q&A interactions with context, response, and metadata
+- **`Jido.Eval.Sample.MultiTurn`**: Multi-turn conversations using `[Jido.AI.Message.t()]`
+- **Helper Functions**: Convert between string and Message formats, validation with clear errors
+
+### Dataset Protocol
+- **`Jido.Eval.Dataset`**: Protocol for pluggable data sources (to_stream/1, sample_type/1, count/1)
+- **Built-in Adapters**: InMemory (lists), JSONL (streaming), CSV (single-turn only)
+- **Memory Efficient**: Streaming preserves memory usage regardless of dataset size
+
+### Configuration System
+- **`Jido.Eval.Config`**: Runtime configuration with pluggable components
+- **`Jido.Eval.RunConfig`**: Execution parameters (timeout, workers, retry policy)
+- **`Jido.Eval.RetryPolicy`**: Retry behavior with exponential backoff and jitter
+
+### Component Registry
+- **`Jido.Eval.ComponentRegistry`**: ETS-based registry for hot-reloadable components
+- **Component Types**: reporter, store, broadcaster, processor, middleware
+- **Runtime Discovery**: Dynamic component lookup and registration
 
 ## Jido AI Integration
 

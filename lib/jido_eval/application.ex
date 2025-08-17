@@ -7,9 +7,16 @@ defmodule JidoEval.Application do
 
   @impl true
   def start(_type, _args) do
+    # Initialize component registry and register built-in metrics
+    :ok = Jido.Eval.ComponentRegistry.start_link()
+    :ok = Jido.Eval.Metrics.register_all()
+
     children = [
-      # Starts a worker by calling: JidoEval.Worker.start_link(arg)
-      # {JidoEval.Worker, arg}
+      # Registry for tracking evaluation runs
+      {Registry, keys: :unique, name: Jido.Eval.Engine.Registry, partitions: System.schedulers_online()},
+      
+      # Dynamic supervisor for worker pools
+      {Jido.Eval.Engine.Supervisor, []}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

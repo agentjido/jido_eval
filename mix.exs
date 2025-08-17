@@ -26,6 +26,10 @@ defmodule JidoEval.MixProject do
       # Jido
       {:jido_ai, path: "../jido_ai"},
 
+      # Core
+      {:typed_struct, "~> 0.3.0"},
+      {:nimble_csv, "~> 1.2"},
+
       # Testing
       {:credo, "~> 1.7", only: [:dev, :test]},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
