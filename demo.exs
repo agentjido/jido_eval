@@ -32,7 +32,7 @@ IO.puts("Dataset created with #{Eval.Dataset.count(dataset)} samples")
 
 # Simple evaluation with default metrics
 IO.puts("\n1. Simple Ragas-compatible evaluation:")
-{:ok, result} = Eval.evaluate(dataset, [])
+{:ok, result} = Eval.evaluate(dataset, metrics: [:faithfulness])
 
 IO.puts("   Evaluation completed!")
 IO.puts("   Run ID: #{result.run_id}")
