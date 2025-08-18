@@ -45,7 +45,9 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
           Req.Test.json(conn, %{"text" => response})
 
         _ ->
-          Req.Test.json(conn, %{"error" => "Not found"}, status: 404)
+          conn
+          |> Plug.Conn.put_resp_header("content-type", "application/json")
+          |> Plug.Conn.resp(404, Jason.encode!(%{"error" => "Not found"}))
       end
     end)
 
@@ -185,7 +187,9 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
     test "handles LLM errors gracefully", %{config: config} do
       # Mock LLM error
       Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        Req.Test.json(conn, %{"error" => "Service unavailable"}, status: 503)
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(503, Jason.encode!(%{"error" => "Service unavailable"}))
       end)
 
       sample = %SingleTurn{

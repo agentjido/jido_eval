@@ -2,6 +2,10 @@
 
 Jido Eval is an Elixir package for evaluating LLMs. It follows the Ragas SDK (Python) pattern. It is designed for use within the Jido Ecosystem.
 
+## Ragas Version
+
+This package is based on Ragas version 0.3.1, available as of 2025-08-18 at https://github.com/explodinggradients/ragas/tree/v0.3.1
+
 ## Commands
 
 - **Test**: `mix test` (all), `mix test test/path/to/specific_test.exs` (single file), `mix test --trace` (verbose)
@@ -137,10 +141,13 @@ schema = [
 
 ### Model Specifications
 
-Use these formats consistently:
-- String: `"openai:gpt-4o"` or `"anthropic:claude-3-5-sonnet-20241022"`
+This package uses `jido_ai` for all LLM interactions. The string format `"provider:model"` is the canonical way to specify models in the Jido ecosystem and is by design:
+
+- String: `"openai:gpt-4o"` or `"anthropic:claude-3-5-sonnet-20241022"` (primary format)
 - Tuple: `{:openai, model: "gpt-4o", temperature: 0.1}` (for evaluations requiring consistency)
 - Struct: `%Jido.AI.Model{}` (when building complex configurations)
+
+The string format provides a clean, consistent interface across all Jido packages.
 
 ### Configuration
 

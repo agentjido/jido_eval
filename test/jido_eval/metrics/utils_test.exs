@@ -101,7 +101,8 @@ defmodule Jido.Eval.Metrics.UtilsTest do
     end
 
     test "handles edge cases" do
-      assert {:ok, 0.0} = Utils.extract_score("Score: 0")
+      assert {:ok, score} = Utils.extract_score("Score: 0")
+      assert score == +0.0
       assert {:ok, 1.0} = Utils.extract_score("Perfect score: 1.0")
     end
   end

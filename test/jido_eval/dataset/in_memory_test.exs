@@ -247,9 +247,13 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
             ) do
         # Create initial samples
         initial_samples =
-          Enum.map(1..initial_count, fn i ->
-            %SingleTurn{id: "initial_#{i}", user_input: "Initial #{i}"}
-          end)
+          if initial_count > 0 do
+            Enum.map(1..initial_count, fn i ->
+              %SingleTurn{id: "initial_#{i}", user_input: "Initial #{i}"}
+            end)
+          else
+            []
+          end
 
         {:ok, dataset} =
           if initial_count == 0 do

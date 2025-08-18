@@ -17,7 +17,9 @@ defmodule Jido.Eval.Broadcaster do
         
         def publish(event, data, opts) do
           prefix = Keyword.get(opts, :prefix, [:jido, :eval])
-          :telemetry.execute(prefix ++ [event], data, %{})
+          measurements = if is_map(data), do: Map.take(data, [:count, :duration, :score]), else: %{}
+          metadata = %{data: data}
+          :telemetry.execute(prefix ++ [event], measurements, metadata)
           :ok
         end
       end

@@ -68,8 +68,6 @@ defmodule Jido.Eval.Config do
   end
 
   defp generate_uuid do
-    :crypto.strong_rand_bytes(16)
-    |> Base.encode16(case: :lower)
-    |> String.replace(~r/(.{8})(.{4})(.{4})(.{4})(.{12})/, "\\1-\\2-\\3-\\4-\\5")
+    Uniq.UUID.uuid7()
   end
 end

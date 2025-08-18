@@ -3,14 +3,14 @@ defmodule Jido.Eval.Engine do
   Main execution coordinator for Jido Eval.
 
   Provides both synchronous and asynchronous evaluation execution with
-  OTP supervision, worker pools, and real-time monitoring capabilities.
+  Task supervision and real-time monitoring capabilities.
 
   ## Architecture
 
   - **Synchronous Mode**: Direct evaluation with blocking execution
-  - **Asynchronous Mode**: Supervised evaluation with progress tracking
-  - **Worker Pools**: Bounded concurrency with fault isolation
-  - **Registry Integration**: Real-time progress querying
+  - **Asynchronous Mode**: Task-supervised evaluation with progress tracking
+  - **Task Concurrency**: Uses Task.async_stream for efficient parallel processing
+  - **Registry Integration**: Real-time progress querying via Agent processes
   - **Telemetry Events**: Comprehensive monitoring support
 
   ## Examples
@@ -31,15 +31,15 @@ defmodule Jido.Eval.Engine do
   require Logger
 
   alias Jido.Eval.{Config, Result, Dataset}
-  alias Jido.Eval.Engine.WorkerPool
+  alias Jido.Eval.Engine.Run
 
   @registry_name Jido.Eval.Engine.Registry
-  @supervisor_name Jido.Eval.Engine.Supervisor
+  @task_supervisor_name Jido.Eval.Engine.TaskSupervisor
 
   @doc """
-  Start an asynchronous evaluation run with supervision.
+  Start an asynchronous evaluation run with Task supervision.
 
-  Creates a supervised worker pool and starts evaluation in the background.
+  Creates a supervised Task and starts evaluation in the background.
   Returns immediately with a run ID for progress tracking.
 
   ## Parameters
@@ -67,9 +67,31 @@ defmodule Jido.Eval.Engine do
   """
   @spec start_evaluation(Dataset.t(), Config.t(), [atom()], keyword()) ::
           {:ok, String.t()} | {:error, term()}
-  def start_evaluation(dataset, config, metrics, opts \\ []) do
-    with {:ok, config} <- Config.ensure_run_id(config),
-         {:ok, _pid} <- start_worker_pool(config, dataset, metrics, opts) do
+  def start_evaluation(dataset, config, metrics, _opts \\ []) do
+    with {:ok, config} <- Config.ensure_run_id(config) do
+      # Create Agent for progress tracking
+      start_time = DateTime.utc_now()
+
+      {:ok, agent} =
+        Agent.start_link(fn ->
+          %{
+            run_id: config.run_id,
+            completed: 0,
+            total: Dataset.count(dataset),
+            started_at: start_time
+          }
+        end)
+
+      # Start evaluation task
+      task =
+        Task.Supervisor.async_nolink(
+          @task_supervisor_name,
+          fn -> Run.execute(dataset, config, metrics, agent) end
+        )
+
+      # Register the run
+      Registry.register(@registry_name, config.run_id, %{task: task, agent: agent})
+
       {:ok, config.run_id}
     end
   end
@@ -78,7 +100,7 @@ defmodule Jido.Eval.Engine do
   Execute evaluation synchronously.
 
   Blocks until evaluation completes and returns the final result.
-  Uses the same worker pool architecture but waits for completion.
+  Uses the same Task architecture but waits for completion.
 
   ## Parameters
 
@@ -135,9 +157,14 @@ defmodule Jido.Eval.Engine do
   @spec get_progress(String.t()) :: {:ok, map()} | {:error, term()}
   def get_progress(run_id) do
     case Registry.lookup(@registry_name, run_id) do
-      [{pid, _}] when is_pid(pid) ->
+      [{_pid, %{agent: agent}}] ->
         try do
-          progress = GenServer.call(pid, :get_progress, 5_000)
+          progress =
+            Agent.get(agent, fn state ->
+              elapsed_ms = DateTime.diff(DateTime.utc_now(), state.started_at, :millisecond)
+              Map.put(state, :elapsed_ms, elapsed_ms)
+            end)
+
           {:ok, progress}
         catch
           :exit, _ -> {:error, :process_unavailable}
@@ -169,13 +196,22 @@ defmodule Jido.Eval.Engine do
   @spec await_result(String.t(), non_neg_integer()) :: {:ok, Result.t()} | {:error, term()}
   def await_result(run_id, timeout) do
     case Registry.lookup(@registry_name, run_id) do
-      [{pid, _}] when is_pid(pid) ->
-        try do
-          result = GenServer.call(pid, :await_result, timeout)
-          {:ok, result}
-        catch
-          :exit, {:timeout, _} -> {:error, :timeout}
-          :exit, _ -> {:error, :process_unavailable}
+      [{_pid, %{task: task, agent: agent}}] ->
+        case Task.yield(task, timeout) do
+          {:ok, result} ->
+            # Clean up agent
+            Agent.stop(agent)
+            {:ok, result}
+
+          nil ->
+            # Task didn't complete within timeout
+            Task.shutdown(task, :brutal_kill)
+            Agent.stop(agent)
+            {:error, :timeout}
+
+          {:exit, reason} ->
+            Agent.stop(agent)
+            {:error, {:task_failed, reason}}
         end
 
       [] ->
@@ -202,8 +238,10 @@ defmodule Jido.Eval.Engine do
   @spec cancel_evaluation(String.t()) :: :ok | {:error, term()}
   def cancel_evaluation(run_id) do
     case Registry.lookup(@registry_name, run_id) do
-      [{pid, _}] when is_pid(pid) ->
-        GenServer.cast(pid, :cancel)
+      [{_pid, %{task: task, agent: agent}}] ->
+        # Mark as cancelled in progress  
+        Agent.update(agent, &Map.put(&1, :cancelled, true))
+        Task.shutdown(task, :brutal_kill)
         :ok
 
       [] ->
@@ -226,81 +264,16 @@ defmodule Jido.Eval.Engine do
   @spec list_running() :: {:ok, [map()]}
   def list_running do
     runs =
-      Registry.select(@registry_name, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
-      |> Enum.map(fn {run_id, pid} ->
+      Registry.select(@registry_name, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}])
+      |> Enum.map(fn {run_id, _pid, %{task: task, agent: agent}} ->
         try do
-          progress = GenServer.call(pid, :get_progress, 1_000)
-          %{run_id: run_id, pid: pid, progress: progress}
+          progress = Agent.get(agent, & &1)
+          %{run_id: run_id, task_pid: task.pid, progress: progress}
         catch
-          :exit, _ -> %{run_id: run_id, pid: pid, progress: :unavailable}
+          :exit, _ -> %{run_id: run_id, task_pid: task.pid, progress: :unavailable}
         end
       end)
 
     {:ok, runs}
-  end
-
-  # Private implementation functions
-
-  defp start_worker_pool(config, dataset, metrics, opts) do
-    child_spec = {
-      WorkerPool,
-      [
-        config: config,
-        dataset: dataset,
-        metrics: metrics,
-        opts: opts,
-        registry: @registry_name
-      ]
-    }
-
-    case DynamicSupervisor.start_child(@supervisor_name, child_spec) do
-      {:ok, pid} -> {:ok, pid}
-      {:error, {:already_started, pid}} -> {:ok, pid}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
-  Start the engine components.
-
-  Called during application startup to initialize the registry and supervisor.
-
-  ## Returns
-
-  - `:ok` - Engine started successfully
-  - `{:error, reason}` - Failed to start engine
-  """
-  @spec start() :: :ok | {:error, term()}
-  def start do
-    with :ok <- start_registry(),
-         {:ok, _pid} <- start_supervisor() do
-      :ok
-    end
-  end
-
-  defp start_registry do
-    case Registry.start_link(
-           keys: :unique,
-           name: @registry_name,
-           partitions: System.schedulers_online()
-         ) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp start_supervisor do
-    case DynamicSupervisor.start_link(
-           strategy: :one_for_one,
-           name: @supervisor_name,
-           max_children: 100,
-           max_seconds: 60,
-           max_restarts: 10
-         ) do
-      {:ok, pid} -> {:ok, pid}
-      {:error, {:already_started, pid}} -> {:ok, pid}
-      {:error, reason} -> {:error, reason}
-    end
   end
 end

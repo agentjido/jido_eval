@@ -163,7 +163,9 @@ defmodule Jido.Eval.Metrics.FaithfulnessTest do
     test "handles LLM errors gracefully", %{config: config} do
       # Mock LLM error
       Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        Req.Test.json(conn, %{"error" => "API rate limit exceeded"}, status: 429)
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(429, Jason.encode!(%{"error" => "API rate limit exceeded"}))
       end)
 
       sample = %SingleTurn{

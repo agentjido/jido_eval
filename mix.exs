@@ -36,7 +36,7 @@ defmodule JidoEval.MixProject do
       {:doctor, "~> 0.22.0", only: [:dev, :test]},
       {:ex_check, "~> 0.12", only: [:dev, :test]},
       {:ex_doc, "~> 0.37-rc", only: [:dev, :test], runtime: false},
-      {:excoveralls, "~> 0.18.3", only: [:dev, :test]},
+      {:excoveralls, "~> 0.18.5", only: [:dev, :test]},
       {:expublish, "~> 2.5", only: [:dev], runtime: false},
       {:git_ops, "~> 2.5", only: [:dev, :test]},
       {:igniter, "~> 0.5", only: [:dev, :test]},

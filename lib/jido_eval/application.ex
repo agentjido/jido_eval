@@ -16,8 +16,8 @@ defmodule JidoEval.Application do
       {Registry,
        keys: :unique, name: Jido.Eval.Engine.Registry, partitions: System.schedulers_online()},
 
-      # Dynamic supervisor for worker pools
-      {Jido.Eval.Engine.Supervisor, []}
+      # Task supervisor for evaluation runs
+      {Task.Supervisor, name: Jido.Eval.Engine.TaskSupervisor, strategy: :one_for_one}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
