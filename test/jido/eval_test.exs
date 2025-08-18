@@ -2,7 +2,7 @@ defmodule Jido.EvalTest do
   use ExUnit.Case, async: false
 
   alias Jido.Eval
-  alias Jido.Eval.{Config, RunConfig, Dataset, Sample}
+  alias Jido.Eval.{Config, Dataset, Sample}
 
   defp sample_dataset do
     samples = [

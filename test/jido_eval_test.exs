@@ -1,7 +1,7 @@
 defmodule JidoEvalTest do
   use ExUnit.Case, async: true
 
-  doctest JidoEval
+  doctest Jido.Eval
 
   describe "application startup" do
     test "can start the application" do
