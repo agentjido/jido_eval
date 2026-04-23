@@ -6,7 +6,54 @@ defmodule Jido.Eval.Integration.LiveEvalTest do
   @moduletag :live_eval
   @moduletag timeout: 120_000
 
+  setup do
+    previous_llm_stub = Application.get_env(:jido_eval, :llm_stub)
+    live_env_state = Jido.Eval.Test.LiveEnv.load!()
+    previous_judge_opts = Application.get_env(:jido_eval, :judge_opts)
+    previous_llm_opts = Application.get_env(:jido_eval, :llm_opts)
+
+    Application.delete_env(:jido_eval, :llm_stub)
+    Application.delete_env(:jido_eval, :judge_opts)
+    Application.delete_env(:jido_eval, :llm_opts)
+
+    on_exit(fn ->
+      Jido.Eval.Test.LiveEnv.restore!(live_env_state)
+
+      if previous_llm_stub do
+        Application.put_env(:jido_eval, :llm_stub, previous_llm_stub)
+      else
+        Application.delete_env(:jido_eval, :llm_stub)
+      end
+
+      if previous_judge_opts do
+        Application.put_env(:jido_eval, :judge_opts, previous_judge_opts)
+      else
+        Application.delete_env(:jido_eval, :judge_opts)
+      end
+
+      if previous_llm_opts do
+        Application.put_env(:jido_eval, :llm_opts, previous_llm_opts)
+      else
+        Application.delete_env(:jido_eval, :llm_opts)
+      end
+    end)
+  end
+
   describe "live evaluation with real LLM" do
+    test "smoke-tests Anthropic judge text calls" do
+      {:ok, call} =
+        Jido.Eval.LLM.text(
+          "anthropic:claude-sonnet-4-20250514",
+          "Reply with exactly OK.",
+          temperature: 0.0,
+          max_tokens: 16
+        )
+
+      assert call.text =~ "OK"
+      assert call.model_spec == "anthropic:claude-sonnet-4-20250514"
+      assert call.raw_response != nil
+    end
+
     test "evaluates faithfulness on single RAG example" do
       # Single sample for reliable testing  
       samples = [
@@ -29,7 +76,7 @@ defmodule Jido.Eval.Integration.LiveEvalTest do
       {:ok, result} =
         Jido.Eval.evaluate(dataset,
           metrics: [:faithfulness],
-          llm: "openai:gpt-4o-mini",
+          judge_model: "openai:gpt-4o-mini",
           reporters: [],
           broadcasters: [],
           processors: [],
@@ -93,7 +140,8 @@ defmodule Jido.Eval.Integration.LiveEvalTest do
       {:ok, result} =
         Jido.Eval.evaluate(dataset,
           metrics: [:faithfulness],
-          llm: {:openai, model: "gpt-4o-mini", temperature: 0.1},
+          judge_model: "openai:gpt-4o-mini",
+          judge_opts: [temperature: 0.1],
           reporters: [],
           broadcasters: [],
           processors: [],
@@ -148,7 +196,7 @@ defmodule Jido.Eval.Integration.LiveEvalTest do
       {:ok, result} =
         Jido.Eval.evaluate(dataset,
           metrics: [:faithfulness, :context_precision],
-          llm: "openai:gpt-4o-mini",
+          judge_model: "openai:gpt-4o-mini",
           reporters: [],
           broadcasters: [],
           processors: [],
@@ -225,7 +273,7 @@ defmodule Jido.Eval.Integration.LiveEvalTest do
       {:ok, result} =
         Jido.Eval.evaluate(dataset,
           metrics: [:faithfulness, :context_precision],
-          llm: "openai:gpt-4o-mini",
+          judge_model: "openai:gpt-4o-mini",
           reporters: [],
           broadcasters: [],
           processors: [],
@@ -295,7 +343,7 @@ defmodule Jido.Eval.Integration.LiveEvalTest do
       {:ok, run_id} =
         Jido.Eval.evaluate_async(dataset,
           metrics: [:faithfulness, :context_precision],
-          llm: "openai:gpt-4o-mini",
+          judge_model: "openai:gpt-4o-mini",
           reporters: [],
           broadcasters: [],
           processors: [],
@@ -353,7 +401,7 @@ defmodule Jido.Eval.Integration.LiveEvalTest do
       {:ok, result} =
         Jido.Eval.evaluate(dataset,
           metrics: [:faithfulness],
-          llm: "openai:gpt-4o-mini",
+          judge_model: "openai:gpt-4o-mini",
           reporters: [],
           broadcasters: [],
           processors: [],

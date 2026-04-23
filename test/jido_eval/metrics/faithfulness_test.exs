@@ -1,24 +1,28 @@
 defmodule Jido.Eval.Metrics.FaithfulnessTest do
   use ExUnit.Case, async: false
 
-  alias Jido.Eval.{Config, Sample.SingleTurn, Sample.MultiTurn}
   alias Jido.Eval.Metrics.Faithfulness
+  alias Jido.Eval.{Config, Sample.MultiTurn, Sample.SingleTurn}
+  alias ReqLLM.Error
 
   @moduletag :capture_log
 
   setup do
-    # Use Application environment for test model
-    Application.put_env(:jido_ai, :test_mode, true)
+    previous_llm_stub = Application.get_env(:jido_eval, :llm_stub)
 
     config = %Config{
-      model_spec: "test:model"
+      judge_model: "openai:gpt-3.5-turbo"
     }
 
-    %{config: config}
-
     on_exit(fn ->
-      Application.delete_env(:jido_ai, :test_mode)
+      if previous_llm_stub do
+        Application.put_env(:jido_eval, :llm_stub, previous_llm_stub)
+      else
+        Application.delete_env(:jido_eval, :llm_stub)
+      end
     end)
+
+    %{config: config}
   end
 
   describe "metric metadata" do
@@ -46,79 +50,59 @@ defmodule Jido.Eval.Metrics.FaithfulnessTest do
   end
 
   describe "evaluate/3" do
-    @describetag :skip
     test "evaluates faithful response with perfect score", %{config: config} do
+      stub_structured_judge(
+        extraction: [%{text: "Paris is the capital of France."}],
+        support: %{"Paris is the capital of France." => true}
+      )
+
       sample = %SingleTurn{
         response: "Paris is the capital of France.",
         retrieved_contexts: ["France's capital city is Paris."]
       }
 
-      assert {:ok, score} = Faithfulness.evaluate(sample, config, [])
-      assert score == 1.0
+      assert {:ok, result} = Faithfulness.evaluate(sample, config, [])
+      assert result.score == 1.0
+      assert result.details.supported_count == 1
+      assert result.details.statement_count == 1
+      assert [%{type: :object}, %{type: :object}] = result.judge_calls
     end
 
     test "evaluates partially faithful response", %{config: config} do
-      # Mock mixed responses - one supported, one not
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        body = Jason.decode!(conn.body)
-        prompt = body["prompt"] || body["messages"] |> List.last() |> Map.get("content", "")
-
-        response =
-          cond do
-            String.contains?(prompt, "extract all the individual claims") ->
-              "1. Paris is the capital of France.\n2. London is the capital of Germany."
-
-            String.contains?(prompt, "Paris is the capital of France") ->
-              "YES"
-
-            String.contains?(prompt, "London is the capital of Germany") ->
-              "NO"
-
-            true ->
-              "NO"
-          end
-
-        Req.Test.json(conn, %{"text" => response})
-      end)
+      stub_structured_judge(
+        extraction: [
+          %{text: "Paris is the capital of France."},
+          %{text: "London is the capital of Germany."}
+        ],
+        support: %{
+          "Paris is the capital of France." => true,
+          "London is the capital of Germany." => false
+        }
+      )
 
       sample = %SingleTurn{
         response: "Paris is the capital of France. London is the capital of Germany.",
         retrieved_contexts: ["France's capital city is Paris."]
       }
 
-      assert {:ok, score} = Faithfulness.evaluate(sample, config, [])
-      # 1 out of 2 statements supported
-      assert score == 0.5
+      assert {:ok, result} = Faithfulness.evaluate(sample, config, [])
+      assert result.score == 0.5
+      assert Enum.map(result.details.statements, & &1.supported) == [true, false]
     end
 
     test "evaluates unfaithful response with zero score", %{config: config} do
-      # Mock all statements as unsupported
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        body = Jason.decode!(conn.body)
-        prompt = body["prompt"] || body["messages"] |> List.last() |> Map.get("content", "")
-
-        response =
-          cond do
-            String.contains?(prompt, "extract all the individual claims") ->
-              "1. Mars is inhabited by aliens."
-
-            String.contains?(prompt, "Mars is inhabited by aliens") ->
-              "NO"
-
-            true ->
-              "NO"
-          end
-
-        Req.Test.json(conn, %{"text" => response})
-      end)
+      stub_structured_judge(
+        extraction: [%{text: "Mars is inhabited by aliens."}],
+        support: %{"Mars is inhabited by aliens." => false}
+      )
 
       sample = %SingleTurn{
         response: "Mars is inhabited by aliens.",
         retrieved_contexts: ["Mars is a planet in our solar system."]
       }
 
-      assert {:ok, score} = Faithfulness.evaluate(sample, config, [])
-      assert score == 0.0
+      assert {:ok, result} = Faithfulness.evaluate(sample, config, [])
+      assert result.score == 0.0
     end
 
     test "handles empty response", %{config: config} do
@@ -153,19 +137,18 @@ defmodule Jido.Eval.Metrics.FaithfulnessTest do
 
     test "rejects multi-turn samples", %{config: config} do
       sample = %MultiTurn{
-        conversation: [%Jido.AI.Message{role: :user, content: "Hello"}]
+        conversation: [%{role: :user, content: "Hello"}]
       }
 
       assert {:error, {:invalid_sample_type, :multi_turn}} =
                Faithfulness.evaluate(sample, config, [])
     end
 
-    test "handles LLM errors gracefully", %{config: config} do
-      # Mock LLM error
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        conn
-        |> Plug.Conn.put_resp_header("content-type", "application/json")
-        |> Plug.Conn.resp(429, Jason.encode!(%{"error" => "API rate limit exceeded"}))
+    test "returns ReqLLM errors from judge calls", %{config: config} do
+      error = Error.API.Request.exception(reason: :rate_limit, status: 429)
+
+      Application.put_env(:jido_eval, :llm_stub, fn :object, _model, _prompt, _schema, _opts ->
+        {:error, error}
       end)
 
       sample = %SingleTurn{
@@ -173,29 +156,17 @@ defmodule Jido.Eval.Metrics.FaithfulnessTest do
         retrieved_contexts: ["France's capital city is Paris."]
       }
 
-      assert {:error, {:llm_error, _reason}} =
-               Faithfulness.evaluate(sample, config, [])
+      assert {:error, ^error} = Faithfulness.evaluate(sample, config, [])
     end
 
-    test "handles unparseable boolean responses", %{config: config} do
-      # Mock ambiguous boolean response
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        body = Jason.decode!(conn.body)
-        prompt = body["prompt"] || body["messages"] |> List.last() |> Map.get("content", "")
-
-        response =
-          cond do
-            String.contains?(prompt, "extract all the individual claims") ->
-              "1. Paris is the capital of France."
-
-            String.contains?(prompt, "Paris is the capital of France") ->
-              "Maybe, it depends on your perspective"
-
-            true ->
-              "Uncertain"
+    test "defaults unsupported when structured support field is absent", %{config: config} do
+      Application.put_env(:jido_eval, :llm_stub, fn
+        :object, _model, prompt, _schema, _opts ->
+          if String.contains?(prompt, "extract all individual factual claims") do
+            {:ok, %{statements: [%{text: "Paris is the capital of France."}]}}
+          else
+            {:ok, %{reasoning: "Ambiguous"}}
           end
-
-        Req.Test.json(conn, %{"text" => response})
       end)
 
       sample = %SingleTurn{
@@ -203,30 +174,20 @@ defmodule Jido.Eval.Metrics.FaithfulnessTest do
         retrieved_contexts: ["France's capital city is Paris."]
       }
 
-      assert {:ok, score} = Faithfulness.evaluate(sample, config, [])
-      # Should default to false (not supported) when can't parse
-      assert score == 0.0
+      assert {:ok, result} = Faithfulness.evaluate(sample, config, [])
+      assert result.score == 0.0
     end
 
-    test "uses entire response as statement when extraction fails", %{config: config} do
-      # Mock empty statement extraction
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        body = Jason.decode!(conn.body)
-        prompt = body["prompt"] || body["messages"] |> List.last() |> Map.get("content", "")
-
-        response =
-          cond do
-            String.contains?(prompt, "extract all the individual claims") ->
-              "No clear statements found."
-
-            String.contains?(prompt, "Paris is the capital") ->
-              "YES"
-
-            true ->
-              "YES"
+    test "uses entire response as statement when extraction returns no statements", %{
+      config: config
+    } do
+      Application.put_env(:jido_eval, :llm_stub, fn
+        :object, _model, prompt, _schema, _opts ->
+          if String.contains?(prompt, "extract all individual factual claims") do
+            {:ok, %{statements: []}}
+          else
+            {:ok, %{supported: true, reasoning: "Supported by context"}}
           end
-
-        Req.Test.json(conn, %{"text" => response})
       end)
 
       sample = %SingleTurn{
@@ -234,9 +195,11 @@ defmodule Jido.Eval.Metrics.FaithfulnessTest do
         retrieved_contexts: ["France's capital city is Paris."]
       }
 
-      assert {:ok, score} = Faithfulness.evaluate(sample, config, [])
-      # Entire response treated as single statement
-      assert score == 1.0
+      assert {:ok, result} = Faithfulness.evaluate(sample, config, [])
+      assert result.score == 1.0
+
+      assert [%{text: "Paris is the capital of France.", supported: true}] =
+               result.details.statements
     end
   end
 
@@ -244,16 +207,42 @@ defmodule Jido.Eval.Metrics.FaithfulnessTest do
     @describetag :skip
     @describetag :benchmark
     test "evaluates sample within reasonable time", %{config: config} do
+      stub_structured_judge(
+        extraction: [%{text: "Paris is the capital of France."}],
+        support: %{"Paris is the capital of France." => true}
+      )
+
       sample = %SingleTurn{
         response: "Paris is the capital of France and it's located in Europe.",
         retrieved_contexts: ["France's capital city is Paris, located in northern France."]
       }
 
-      {time_micro, {:ok, _score}} =
+      {time_micro, {:ok, _result}} =
         :timer.tc(fn -> Faithfulness.evaluate(sample, config, timeout: 10_000) end)
 
-      # Should complete within 10 seconds even with network calls
       assert time_micro < 10_000_000
     end
+  end
+
+  defp stub_structured_judge(opts) do
+    statements = Keyword.fetch!(opts, :extraction)
+    support = Keyword.fetch!(opts, :support)
+
+    Application.put_env(:jido_eval, :llm_stub, fn
+      :object, %LLMDB.Model{}, prompt, _schema, _opts ->
+        cond do
+          String.contains?(prompt, "extract all individual factual claims") ->
+            {:ok, %{statements: statements}}
+
+          true ->
+            supported =
+              support
+              |> Enum.find_value(false, fn {statement, value} ->
+                if String.contains?(prompt, statement), do: value
+              end)
+
+            {:ok, %{supported: supported, reasoning: "structured judge result"}}
+        end
+    end)
   end
 end

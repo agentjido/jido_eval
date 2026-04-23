@@ -1,59 +1,26 @@
 defmodule Jido.Eval.Metrics.ContextPrecisionTest do
   use ExUnit.Case, async: false
 
-  alias Jido.Eval.{Config, Sample.SingleTurn, Sample.MultiTurn}
   alias Jido.Eval.Metrics.ContextPrecision
+  alias Jido.Eval.{Config, Sample.MultiTurn, Sample.SingleTurn}
+  alias ReqLLM.Error
 
   @moduletag :capture_log
 
   setup do
-    # Set up Req.Test adapter for mocking LLM calls
-    Req.Test.stub(Jido.Eval.LLM, fn conn ->
-      case conn.request_path do
-        "/generate_text" ->
-          # Check the request body to determine response
-          body = Jason.decode!(conn.body)
-          prompt = body["prompt"] || body["messages"] |> List.last() |> Map.get("content", "")
-
-          response =
-            cond do
-              String.contains?(prompt, "Paris is the capital and largest city") ->
-                # Highly relevant
-                "YES"
-
-              String.contains?(prompt, "France is a country in Western Europe") ->
-                # Somewhat relevant
-                "YES"
-
-              String.contains?(prompt, "Germany is a country in Central Europe") ->
-                # Not relevant
-                "NO"
-
-              String.contains?(prompt, "Spain shares a border with France") ->
-                # Somewhat relevant
-                "YES"
-
-              String.contains?(prompt, "The weather in Tokyo") ->
-                # Not relevant
-                "NO"
-
-              true ->
-                # Default to relevant
-                "YES"
-            end
-
-          Req.Test.json(conn, %{"text" => response})
-
-        _ ->
-          conn
-          |> Plug.Conn.put_resp_header("content-type", "application/json")
-          |> Plug.Conn.resp(404, Jason.encode!(%{"error" => "Not found"}))
-      end
-    end)
+    previous_llm_stub = Application.get_env(:jido_eval, :llm_stub)
 
     config = %Config{
-      model_spec: "test:model"
+      judge_model: "openai:gpt-3.5-turbo"
     }
+
+    on_exit(fn ->
+      if previous_llm_stub do
+        Application.put_env(:jido_eval, :llm_stub, previous_llm_stub)
+      else
+        Application.delete_env(:jido_eval, :llm_stub)
+      end
+    end)
 
     %{config: config}
   end
@@ -84,8 +51,12 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
   end
 
   describe "evaluate/3" do
-    @describetag :skip
     test "evaluates perfect precision with all relevant contexts", %{config: config} do
+      stub_relevance_judge(%{
+        "Paris is the capital and largest city of France." => true,
+        "France is a country in Western Europe." => true
+      })
+
       sample = %SingleTurn{
         user_input: "What is the capital of France?",
         retrieved_contexts: [
@@ -95,39 +66,41 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
         reference: "Paris is the capital of France."
       }
 
-      assert {:ok, score} = ContextPrecision.evaluate(sample, config, [])
-      assert score == 1.0
+      assert {:ok, result} = ContextPrecision.evaluate(sample, config, [])
+      assert result.score == 1.0
+      assert result.details.relevant_count == 2
+      assert result.details.context_count == 2
+      assert [%{type: :object}, %{type: :object}] = result.judge_calls
     end
 
     test "evaluates mixed precision with relevant and irrelevant contexts", %{config: config} do
+      stub_relevance_judge(%{
+        "Germany is a country in Central Europe." => false,
+        "Paris is the capital and largest city of France." => true,
+        "Spain shares a border with France." => true
+      })
+
       sample = %SingleTurn{
         user_input: "What is the capital of France?",
         retrieved_contexts: [
-          # Not relevant - position 1
           "Germany is a country in Central Europe.",
-          # Relevant - position 2  
           "Paris is the capital and largest city of France.",
-          # Relevant - position 3
           "Spain shares a border with France."
         ],
         reference: "Paris is the capital of France."
       }
 
-      assert {:ok, score} = ContextPrecision.evaluate(sample, config, [])
+      assert {:ok, result} = ContextPrecision.evaluate(sample, config, [])
 
-      # Average precision calculation:
-      # Position 1: irrelevant, precision = 0
-      # Position 2: relevant, precision = 1/2 = 0.5
-      # Position 3: relevant, precision = 2/3 ≈ 0.667
-      # Average of relevant positions: (0.5 + 0.667) / 2 ≈ 0.583
-      assert_in_delta score, 0.583, 0.01
+      assert_in_delta result.score, 0.583, 0.01
+      assert Enum.map(result.details.contexts, & &1.relevant) == [false, true, true]
     end
 
     test "evaluates zero precision with no relevant contexts", %{config: config} do
-      # Mock all contexts as irrelevant
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        Req.Test.json(conn, %{"text" => "NO"})
-      end)
+      stub_relevance_judge(%{
+        "The weather in Tokyo is nice." => false,
+        "Cats are popular pets." => false
+      })
 
       sample = %SingleTurn{
         user_input: "What is the capital of France?",
@@ -138,8 +111,8 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
         reference: "Paris is the capital of France."
       }
 
-      assert {:ok, score} = ContextPrecision.evaluate(sample, config, [])
-      assert score == 0.0
+      assert {:ok, result} = ContextPrecision.evaluate(sample, config, [])
+      assert result.score == 0.0
     end
 
     test "handles empty contexts list", %{config: config} do
@@ -177,19 +150,18 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
 
     test "rejects multi-turn samples", %{config: config} do
       sample = %MultiTurn{
-        conversation: [%Jido.AI.Message{role: :user, content: "Hello"}]
+        conversation: [%{role: :user, content: "Hello"}]
       }
 
       assert {:error, {:invalid_sample_type, :multi_turn}} =
                ContextPrecision.evaluate(sample, config, [])
     end
 
-    test "handles LLM errors gracefully", %{config: config} do
-      # Mock LLM error
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        conn
-        |> Plug.Conn.put_resp_header("content-type", "application/json")
-        |> Plug.Conn.resp(503, Jason.encode!(%{"error" => "Service unavailable"}))
+    test "returns ReqLLM errors from judge calls", %{config: config} do
+      error = Error.API.Request.exception(reason: :unavailable, status: 503)
+
+      Application.put_env(:jido_eval, :llm_stub, fn :object, _model, _prompt, _schema, _opts ->
+        {:error, error}
       end)
 
       sample = %SingleTurn{
@@ -198,14 +170,12 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
         reference: "Paris"
       }
 
-      assert {:error, {:llm_error, _reason}} =
-               ContextPrecision.evaluate(sample, config, [])
+      assert {:error, ^error} = ContextPrecision.evaluate(sample, config, [])
     end
 
-    test "handles unparseable boolean responses", %{config: config} do
-      # Mock ambiguous boolean response
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        Req.Test.json(conn, %{"text" => "Maybe relevant"})
+    test "defaults irrelevant when structured relevance field is absent", %{config: config} do
+      Application.put_env(:jido_eval, :llm_stub, fn :object, _model, _prompt, _schema, _opts ->
+        {:ok, %{reasoning: "Ambiguous"}}
       end)
 
       sample = %SingleTurn{
@@ -214,48 +184,40 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
         reference: "Paris"
       }
 
-      assert {:ok, score} = ContextPrecision.evaluate(sample, config, [])
-      # Should default to false (not relevant) when can't parse
-      assert score == 0.0
+      assert {:ok, result} = ContextPrecision.evaluate(sample, config, [])
+      assert result.score == 0.0
     end
 
     test "evaluates single relevant context", %{config: config} do
+      stub_relevance_judge(%{"Paris is the capital and largest city of France." => true})
+
       sample = %SingleTurn{
         user_input: "What is the capital of France?",
         retrieved_contexts: ["Paris is the capital and largest city of France."],
         reference: "Paris is the capital of France."
       }
 
-      assert {:ok, score} = ContextPrecision.evaluate(sample, config, [])
-      assert score == 1.0
+      assert {:ok, result} = ContextPrecision.evaluate(sample, config, [])
+      assert result.score == 1.0
     end
 
-    test "calculates precision correctly for different arrangements", %{config: config} do
-      # Test with relevant context first, then irrelevant
-      sample1 = %SingleTurn{
+    test "calculates precision correctly when relevant context is first", %{config: config} do
+      stub_relevance_judge(%{
+        "Paris is the capital and largest city of France." => true,
+        "The weather in Tokyo is nice." => false
+      })
+
+      sample = %SingleTurn{
         user_input: "What is the capital of France?",
         retrieved_contexts: [
-          # Relevant
           "Paris is the capital and largest city of France.",
-          # Irrelevant
           "The weather in Tokyo is nice."
         ],
         reference: "Paris is the capital of France."
       }
 
-      # Mock first context as relevant, second as irrelevant
-      Req.Test.stub(Jido.Eval.LLM, fn conn ->
-        body = Jason.decode!(conn.body)
-        prompt = body["prompt"] || body["messages"] |> List.last() |> Map.get("content", "")
-
-        response = if String.contains?(prompt, "Paris is the capital"), do: "YES", else: "NO"
-        Req.Test.json(conn, %{"text" => response})
-      end)
-
-      assert {:ok, score1} = ContextPrecision.evaluate(sample1, config, [])
-
-      # Precision at position 1: 1/1 = 1.0 (only relevant position)
-      assert score1 == 1.0
+      assert {:ok, result} = ContextPrecision.evaluate(sample, config, [])
+      assert result.score == 1.0
     end
   end
 
@@ -263,6 +225,14 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
     @describetag :skip
     @describetag :benchmark
     test "evaluates sample with multiple contexts within reasonable time", %{config: config} do
+      stub_relevance_judge(%{
+        "Paris is the capital of France." => true,
+        "France is in Europe." => true,
+        "Germany borders France." => false,
+        "Spain also borders France." => false,
+        "The Mediterranean Sea is south of France." => false
+      })
+
       sample = %SingleTurn{
         user_input: "What is the capital of France?",
         retrieved_contexts: [
@@ -275,11 +245,26 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
         reference: "Paris"
       }
 
-      {time_micro, {:ok, _score}} =
+      {time_micro, {:ok, _result}} =
         :timer.tc(fn -> ContextPrecision.evaluate(sample, config, timeout: 15_000) end)
 
-      # Should complete within 15 seconds even with multiple LLM calls
       assert time_micro < 15_000_000
     end
+  end
+
+  defp stub_relevance_judge(relevance_by_context) do
+    Application.put_env(:jido_eval, :llm_stub, fn :object,
+                                                  %LLMDB.Model{},
+                                                  prompt,
+                                                  _schema,
+                                                  _opts ->
+      relevant =
+        relevance_by_context
+        |> Enum.find_value(false, fn {context, value} ->
+          if String.contains?(prompt, context), do: value
+        end)
+
+      {:ok, %{relevant: relevant, reasoning: "structured judge result"}}
+    end)
   end
 end

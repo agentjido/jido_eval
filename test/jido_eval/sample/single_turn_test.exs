@@ -3,7 +3,6 @@ defmodule Jido.Eval.Sample.SingleTurnTest do
   use ExUnitProperties
 
   alias Jido.Eval.Sample.SingleTurn
-  alias Jido.AI.Message
 
   doctest SingleTurn
 
@@ -21,9 +20,9 @@ defmodule Jido.Eval.Sample.SingleTurnTest do
       assert sample.tags == %{"category" => "greeting"}
     end
 
-    test "creates a sample with Message structs" do
-      user_msg = %Message{role: :user, content: "Hello"}
-      response_msg = %Message{role: :assistant, content: "Hi!"}
+    test "creates a sample with message maps" do
+      user_msg = %{role: :user, content: "Hello"}
+      response_msg = %{role: :assistant, content: "Hi!"}
 
       attrs = %{user_input: user_msg, response: response_msg}
 
@@ -68,22 +67,22 @@ defmodule Jido.Eval.Sample.SingleTurnTest do
   end
 
   describe "to_messages/1" do
-    test "converts string user_input to Message" do
+    test "converts string user_input to message" do
       sample = %SingleTurn{user_input: "Hello"}
       converted = SingleTurn.to_messages(sample)
 
-      assert %Message{role: :user, content: "Hello"} = converted.user_input
+      assert %{role: :user, content: "Hello"} = converted.user_input
     end
 
-    test "converts string response to Message" do
+    test "converts string response to message" do
       sample = %SingleTurn{response: "Hi there!"}
       converted = SingleTurn.to_messages(sample)
 
-      assert %Message{role: :assistant, content: "Hi there!"} = converted.response
+      assert %{role: :assistant, content: "Hi there!"} = converted.response
     end
 
-    test "leaves Message structs unchanged" do
-      user_msg = %Message{role: :user, content: "Hello"}
+    test "leaves message maps unchanged" do
+      user_msg = %{role: :user, content: "Hello"}
       sample = %SingleTurn{user_input: user_msg}
       converted = SingleTurn.to_messages(sample)
 
@@ -99,16 +98,16 @@ defmodule Jido.Eval.Sample.SingleTurnTest do
   end
 
   describe "to_strings/1" do
-    test "converts Message user_input to string" do
-      user_msg = %Message{role: :user, content: "Hello"}
+    test "converts message user_input to string" do
+      user_msg = %{role: :user, content: "Hello"}
       sample = %SingleTurn{user_input: user_msg}
       converted = SingleTurn.to_strings(sample)
 
       assert converted.user_input == "Hello"
     end
 
-    test "converts Message response to string" do
-      response_msg = %Message{role: :assistant, content: "Hi!"}
+    test "converts message response to string" do
+      response_msg = %{role: :assistant, content: "Hi!"}
       sample = %SingleTurn{response: response_msg}
       converted = SingleTurn.to_strings(sample)
 
@@ -189,15 +188,15 @@ defmodule Jido.Eval.Sample.SingleTurnTest do
       assert sample.tags == %{"key" => "value"}
     end
 
-    test "from_map converts message maps to structs" do
+    test "from_map preserves message maps" do
       map = %{
         user_input: %{role: :user, content: "Hello"},
         response: %{role: :assistant, content: "Hi!"}
       }
 
       assert {:ok, sample} = SingleTurn.from_map(map)
-      assert %Message{role: :user, content: "Hello"} = sample.user_input
-      assert %Message{role: :assistant, content: "Hi!"} = sample.response
+      assert %{role: :user, content: "Hello"} = sample.user_input
+      assert %{role: :assistant, content: "Hi!"} = sample.response
     end
 
     test "from_map handles invalid data" do

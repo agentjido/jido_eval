@@ -6,7 +6,6 @@ defmodule Jido.Eval.Dataset.JSONLTest do
   alias Jido.Eval.Dataset
   alias Jido.Eval.Dataset.JSONL
   alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
-  alias Jido.AI.Message
 
   @fixtures_path Path.join([__DIR__, "..", "..", "fixtures"])
   @single_turn_file Path.join(@fixtures_path, "single_turn_samples.jsonl")
@@ -104,8 +103,8 @@ defmodule Jido.Eval.Dataset.JSONLTest do
         %MultiTurn{
           id: "conv_1",
           conversation: [
-            %Message{role: :user, content: "Hello"},
-            %Message{role: :assistant, content: "Hi!"}
+            %{role: :user, content: "Hello"},
+            %{role: :assistant, content: "Hi!"}
           ]
         }
       ]

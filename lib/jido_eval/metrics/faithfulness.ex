@@ -2,75 +2,66 @@ defmodule Jido.Eval.Metrics.Faithfulness do
   @moduledoc """
   Faithfulness metric for evaluating how grounded responses are in provided contexts.
 
-  This metric measures whether the information in a response is supported by the 
-  retrieved contexts. It uses an LLM to identify statements in the response and 
-  check if each statement can be inferred from the given contexts.
-
-  The metric returns a score between 0.0 and 1.0, where:
-  - 1.0 = All statements in the response are fully supported by contexts
-  - 0.0 = No statements in the response are supported by contexts
-
-  ## Algorithm
-
-  1. Extract individual statements/claims from the response
-  2. For each statement, check if it can be attributed to the contexts
-  3. Calculate faithfulness as: (supported_statements / total_statements)
-
-  ## Required Fields
-
-  - `:response` - The AI system's response to evaluate
-  - `:retrieved_contexts` - List of context documents used for generation
-
-  ## Examples
-
-      # High faithfulness - response supported by context
-      sample = %SingleTurn{
-        response: "Paris is the capital of France.",
-        retrieved_contexts: ["France's capital city is Paris, located in northern France."]
-      }
-      {:ok, 1.0} = Faithfulness.evaluate(sample, config, [])
-
-      # Low faithfulness - response not supported  
-      sample = %SingleTurn{
-        response: "London is the capital of France.", 
-        retrieved_contexts: ["France's capital city is Paris, located in northern France."]
-      }
-      {:ok, 0.0} = Faithfulness.evaluate(sample, config, [])
-
-  ## Configuration
-
-  Uses the configured LLM model from `config.llm` for statement analysis.
-  Supports timeout configuration via opts: `[timeout: 30_000]`
+  The metric extracts factual statements from a response, checks each statement
+  against retrieved contexts using structured judge output, and scores the share
+  of statements supported by the contexts.
   """
 
   @behaviour Jido.Eval.Metric
 
+  alias Jido.Eval.Config
   alias Jido.Eval.Metrics.Utils
   alias Jido.Eval.Sample.SingleTurn
 
   require Logger
 
-  # LLM prompts for faithfulness evaluation
   @statement_extraction_prompt """
-  Given the following response, extract all the individual claims or statements that can be fact-checked.
-  Return each statement on a separate line, numbered.
+  Given the following response, extract all individual factual claims or statements that can be fact-checked.
+  Return concise standalone statements. Do not include opinions, filler, or duplicate claims.
 
-  Response: {{response}}
-
-  Statements:
+  Response:
+  {{response}}
   """
 
   @faithfulness_check_prompt """
-  Given the following contexts and a statement, determine if the statement can be attributed to or inferred from the contexts.
-  Answer with only "YES" if the statement is supported, or "NO" if it is not supported.
+  Given the following contexts and a statement, determine whether the statement is supported by or can be inferred from the contexts.
+  Judge only against the provided contexts.
 
   Contexts:
   {{contexts}}
 
-  Statement: {{statement}}
-
-  Answer:
+  Statement:
+  {{statement}}
   """
+
+  @statement_schema %{
+    "type" => "object",
+    "required" => ["statements"],
+    "additionalProperties" => false,
+    "properties" => %{
+      "statements" => %{
+        "type" => "array",
+        "items" => %{
+          "type" => "object",
+          "required" => ["text"],
+          "additionalProperties" => false,
+          "properties" => %{
+            "text" => %{"type" => "string"}
+          }
+        }
+      }
+    }
+  }
+
+  @support_schema %{
+    "type" => "object",
+    "required" => ["supported", "reasoning"],
+    "additionalProperties" => false,
+    "properties" => %{
+      "supported" => %{"type" => "boolean"},
+      "reasoning" => %{"type" => "string"}
+    }
+  }
 
   @impl true
   def name, do: "Faithfulness"
@@ -95,11 +86,26 @@ defmodule Jido.Eval.Metrics.Faithfulness do
     Logger.debug("Starting faithfulness evaluation")
 
     with :ok <- Jido.Eval.Metric.validate_sample(sample, __MODULE__),
-         {:ok, statements} <- extract_statements(sample.response, config, opts),
-         {:ok, faithfulness_score} <-
+         {:ok, statements, extraction_call} <- extract_statements(sample.response, config, opts),
+         {:ok, statement_results, check_calls} <-
            check_statements_faithfulness(statements, sample.retrieved_contexts, config, opts) do
-      Logger.debug("Faithfulness evaluation completed with score: #{faithfulness_score}")
-      {:ok, faithfulness_score}
+      supported_count = Enum.count(statement_results, & &1.supported)
+
+      score =
+        if statement_results == [], do: 0.0, else: supported_count / length(statement_results)
+
+      Logger.debug("Faithfulness evaluation completed with score: #{score}")
+
+      {:ok,
+       %{
+         score: score,
+         details: %{
+           statements: statement_results,
+           supported_count: supported_count,
+           statement_count: length(statement_results)
+         },
+         judge_calls: [extraction_call | check_calls]
+       }}
     else
       {:error, reason} ->
         Logger.warning("Faithfulness evaluation failed: #{inspect(reason)}")
@@ -112,72 +118,51 @@ defmodule Jido.Eval.Metrics.Faithfulness do
     {:error, {:invalid_sample_type, sample_type}}
   end
 
-  # Private functions
-
   defp extract_statements(response, config, opts) do
     prompt = Utils.build_prompt(@statement_extraction_prompt, %{response: response})
 
-    case Utils.execute_llm_metric("Faithfulness", config.model_spec, prompt, opts) do
-      {:ok, llm_response} ->
-        statements = parse_statements(llm_response)
-
-        if Enum.empty?(statements) do
-          Logger.warning("No statements extracted from response: #{response}")
-          # If no statements can be extracted, assume the response itself is the statement
-          {:ok, [response]}
-        else
-          {:ok, statements}
-        end
+    case Utils.execute_llm_object_metric(
+           "Faithfulness",
+           Config.effective_judge_model(config),
+           prompt,
+           @statement_schema,
+           opts
+         ) do
+      {:ok, {object, call}} ->
+        statements = parse_statements(object)
+        {:ok, if(statements == [], do: [response], else: statements), call}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp parse_statements(llm_response) do
-    llm_response
-    |> String.split("\n")
-    |> Enum.map(&String.trim/1)
-    |> Enum.filter(fn line ->
-      # Keep lines that start with numbers or have content
-      String.match?(line, ~r/^\d+\.?\s+.+/) or
-        (String.length(line) > 0 and not String.match?(line, ~r/^statements?:?$/i))
+  defp parse_statements(%{statements: statements}) when is_list(statements) do
+    statements
+    |> Enum.map(fn
+      %{text: text} when is_binary(text) -> String.trim(text)
+      %{"text" => text} when is_binary(text) -> String.trim(text)
+      text when is_binary(text) -> String.trim(text)
+      _ -> ""
     end)
-    |> Enum.map(fn line ->
-      # Remove numbering (e.g., "1. " or "1) ")
-      String.replace(line, ~r/^\d+[.)]\s*/, "")
-    end)
-    |> Enum.filter(fn statement -> String.length(statement) > 0 end)
+    |> Enum.reject(&(&1 == ""))
   end
 
+  defp parse_statements(_object), do: []
+
   defp check_statements_faithfulness(statements, contexts, config, opts) do
-    if Enum.empty?(statements) do
-      {:ok, 0.0}
-    else
-      formatted_contexts = Utils.format_contexts(contexts)
+    formatted_contexts = Utils.format_contexts(contexts)
 
-      # Check each statement against contexts
-      results =
-        statements
-        |> Task.async_stream(
-          fn statement ->
-            check_single_statement(statement, formatted_contexts, config, opts)
-          end,
-          timeout: Keyword.get(opts, :timeout, 30_000),
-          max_concurrency: 3
-        )
-        |> Enum.to_list()
-
-      # Process results
-      case collect_results(results) do
-        {:ok, supported_count} ->
-          faithfulness = supported_count / length(statements)
-          {:ok, faithfulness}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
+    statements
+    |> Task.async_stream(
+      fn statement ->
+        check_single_statement(statement, formatted_contexts, config, opts)
+      end,
+      timeout: Keyword.get(opts, :timeout, 30_000),
+      max_concurrency: 3
+    )
+    |> Enum.to_list()
+    |> collect_results()
   end
 
   defp check_single_statement(statement, formatted_contexts, config, opts) do
@@ -187,20 +172,22 @@ defmodule Jido.Eval.Metrics.Faithfulness do
         statement: statement
       })
 
-    case Utils.execute_llm_metric("Faithfulness", config.model_spec, prompt, opts) do
-      {:ok, llm_response} ->
-        case Utils.parse_boolean(llm_response) do
-          {:ok, is_supported} ->
-            {:ok, is_supported}
+    case Utils.execute_llm_object_metric(
+           "Faithfulness",
+           Config.effective_judge_model(config),
+           prompt,
+           @support_schema,
+           opts
+         ) do
+      {:ok, {object, call}} ->
+        object = object || %{}
 
-          {:error, _} ->
-            # Fallback: if we can't parse, assume not supported
-            Logger.debug(
-              "Could not parse faithfulness response, assuming not supported: #{llm_response}"
-            )
-
-            {:ok, false}
-        end
+        {:ok,
+         %{
+           text: statement,
+           supported: Map.get(object, :supported, false),
+           reasoning: Map.get(object, :reasoning, "")
+         }, call}
 
       {:error, reason} ->
         {:error, reason}
@@ -214,11 +201,13 @@ defmodule Jido.Eval.Metrics.Faithfulness do
            _ -> false
          end) do
       nil ->
-        supported_count =
-          results
-          |> Enum.count(fn {:ok, {:ok, is_supported}} -> is_supported end)
+        statement_results =
+          Enum.map(results, fn {:ok, {:ok, statement_result, _call}} -> statement_result end)
 
-        {:ok, supported_count}
+        calls =
+          Enum.map(results, fn {:ok, {:ok, _statement_result, call}} -> call end)
+
+        {:ok, statement_results, calls}
 
       {:exit, reason} ->
         {:error, {:timeout, reason}}

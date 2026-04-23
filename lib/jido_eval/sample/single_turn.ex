@@ -88,7 +88,7 @@ defmodule Jido.Eval.Sample.SingleTurn do
   end
 
   @doc """
-  Converts string fields to Message structs where appropriate.
+  Converts string fields to message maps where appropriate.
 
   ## Examples
 
@@ -108,11 +108,11 @@ defmodule Jido.Eval.Sample.SingleTurn do
   end
 
   @doc """
-  Converts Message fields to strings where appropriate.
+  Converts message fields to strings where appropriate.
 
   ## Examples
 
-      iex> message = %Jido.AI.Message{role: :user, content: "Hello"}
+      iex> message = %{role: :user, content: "Hello"}
       iex> sample = %Jido.Eval.Sample.SingleTurn{user_input: message}
       iex> converted = Jido.Eval.Sample.SingleTurn.to_strings(sample)
       iex> converted.user_input
@@ -189,7 +189,7 @@ defmodule Jido.Eval.Sample.SingleTurn do
     case Map.get(map, field) do
       %{role: _role, content: _content} = message -> Map.put(map, field, message)
       %{"role" => _role, "content" => _content} = message -> Map.put(map, field, message)
-      # Leave the map unchanged if not a Message
+      # Leave the map unchanged if not a message
       _other -> map
     end
   end

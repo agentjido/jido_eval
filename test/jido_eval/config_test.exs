@@ -9,6 +9,10 @@ defmodule Jido.Eval.ConfigTest do
 
       assert config.run_id == nil
       assert %RunConfig{} = config.run_config
+      assert config.judge_model == "openai:gpt-4o"
+      assert config.model_spec == "openai:gpt-4o"
+      assert config.judge_opts == []
+      assert config.llm_opts == []
       assert config.reporters == [{Jido.Eval.Reporter.Console, []}]
       assert config.stores == []
       assert config.broadcasters == [{Jido.Eval.Broadcaster.Telemetry, [prefix: [:jido, :eval]]}]
@@ -42,6 +46,52 @@ defmodule Jido.Eval.ConfigTest do
       assert config.middleware == [MyMiddleware]
       assert config.tags == %{"experiment" => "test"}
       assert config.notes == "Test run"
+    end
+  end
+
+  describe "judge compatibility fields" do
+    test "legacy model_spec is accepted as the effective judge model" do
+      config = %Config{model_spec: "openai:gpt-3.5-turbo"}
+
+      assert Config.effective_judge_model(config) == "openai:gpt-3.5-turbo"
+
+      {:ok, updated_config} = Config.ensure_run_id(config)
+      assert updated_config.judge_model == "openai:gpt-3.5-turbo"
+      assert updated_config.model_spec == "openai:gpt-3.5-turbo"
+    end
+
+    test "judge_model takes precedence over legacy model_spec" do
+      config = %Config{
+        judge_model: "openai:gpt-4o-mini",
+        model_spec: "openai:gpt-3.5-turbo"
+      }
+
+      assert Config.effective_judge_model(config) == "openai:gpt-4o-mini"
+    end
+
+    test "pre-resolved LLMDB models are accepted directly" do
+      {:ok, model} = LLMDB.model("openai:gpt-3.5-turbo")
+
+      config = Config.normalize(%Config{judge_model: model})
+
+      assert config.judge_model == model
+      assert config.model_spec == model
+      assert Config.effective_judge_model(config) == model
+    end
+
+    test "unsupported tuple model specs are not converted through a shim" do
+      tuple_spec = {:openai, model: "gpt-3.5-turbo"}
+      config = Config.normalize(%Config{judge_model: tuple_spec})
+
+      assert config.judge_model == tuple_spec
+      assert config.model_spec == tuple_spec
+    end
+
+    test "legacy llm_opts are accepted as judge options" do
+      config = Config.normalize(%Config{llm_opts: [api_key: "test-key"]})
+
+      assert config.judge_opts == [api_key: "test-key"]
+      assert config.llm_opts == [api_key: "test-key"]
     end
   end
 

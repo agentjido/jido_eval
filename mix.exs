@@ -23,10 +23,12 @@ defmodule JidoEval.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # Jido
-      jido_dep(:jido_ai, "../jido_ai", "~> 0.5.0"),
-
       # Core
+      {:req_llm, "~> 1.10"},
+      {:llm_db, "~> 2026.4"},
+      {:jason, "~> 1.4"},
+      {:telemetry, "~> 1.4"},
+      {:uniq, "~> 0.6"},
       {:typed_struct, "~> 0.3.0"},
       {:nimble_csv, "~> 1.2"},
 
@@ -43,6 +45,7 @@ defmodule JidoEval.MixProject do
       {:mimic, "~> 2.0", only: [:dev, :test]},
       {:mix_audit, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:plug, "~> 1.18", only: :test},
       {:quokka, "~> 2.10", only: [:dev, :test], runtime: false},
       {:sobelow, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.1", only: [:dev, :test]}
@@ -65,19 +68,5 @@ defmodule JidoEval.MixProject do
         "docs"
       ]
     ]
-  end
-
-  defp jido_dep(app, rel_path, hex_req, extra_opts \\ []) do
-    path = Path.expand(rel_path, __DIR__)
-
-    if File.dir?(path) and File.exists?(Path.join(path, "mix.exs")) do
-      {app, Keyword.merge([path: rel_path, override: true], extra_opts)}
-    else
-      {app, hex_req, extra_opts}
-    end
-    |> case do
-      {app, opts} when is_list(opts) -> {app, opts}
-      {app, req, opts} -> {app, req, opts}
-    end
   end
 end

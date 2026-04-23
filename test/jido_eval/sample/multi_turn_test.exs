@@ -3,15 +3,14 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
   use ExUnitProperties
 
   alias Jido.Eval.Sample.MultiTurn
-  alias Jido.AI.Message
 
   doctest MultiTurn
 
   describe "new/1" do
     test "creates a valid multi-turn sample" do
       conversation = [
-        %Message{role: :user, content: "Hello"},
-        %Message{role: :assistant, content: "Hi! How can I help?"}
+        %{role: :user, content: "Hello"},
+        %{role: :assistant, content: "Hi! How can I help?"}
       ]
 
       attrs = %{
@@ -25,7 +24,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
     end
 
     test "creates sample with default empty conversation" do
-      attrs = %{conversation: [%Message{role: :user, content: "Hello"}]}
+      attrs = %{conversation: [%{role: :user, content: "Hello"}]}
       assert {:ok, sample} = MultiTurn.new(attrs)
       assert length(sample.conversation) == 1
     end
@@ -45,14 +44,14 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
     test "rejects sample with invalid messages" do
       attrs = %{conversation: ["not a message"]}
       assert {:error, reason} = MultiTurn.new(attrs)
-      assert reason == "All conversation items must be valid Messages"
+      assert reason == "All conversation items must be valid messages"
     end
   end
 
   describe "validate/1" do
     test "validates sample with valid conversation" do
       sample = %MultiTurn{
-        conversation: [%Message{role: :user, content: "Hello"}]
+        conversation: [%{role: :user, content: "Hello"}]
       }
 
       assert :ok = MultiTurn.validate(sample)
@@ -70,9 +69,9 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
   end
 
   describe "add_message/2" do
-    test "adds a Message to conversation" do
+    test "adds a message to conversation" do
       sample = %MultiTurn{conversation: []}
-      message = %Message{role: :user, content: "Hello"}
+      message = %{role: :user, content: "Hello"}
 
       updated = MultiTurn.add_message(sample, message)
 
@@ -85,13 +84,13 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
       updated = MultiTurn.add_message(sample, "Hello", :user)
 
       assert length(updated.conversation) == 1
-      assert [%Message{role: :user, content: "Hello"}] = updated.conversation
+      assert [%{role: :user, content: "Hello"}] = updated.conversation
     end
 
     test "appends to existing conversation" do
-      initial_message = %Message{role: :user, content: "Hello"}
+      initial_message = %{role: :user, content: "Hello"}
       sample = %MultiTurn{conversation: [initial_message]}
-      new_message = %Message{role: :assistant, content: "Hi!"}
+      new_message = %{role: :assistant, content: "Hi!"}
 
       updated = MultiTurn.add_message(sample, new_message)
 
@@ -103,9 +102,9 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
   describe "last_message/1" do
     test "returns last message from conversation" do
       messages = [
-        %Message{role: :user, content: "Hello"},
-        %Message{role: :assistant, content: "Hi!"},
-        %Message{role: :user, content: "How are you?"}
+        %{role: :user, content: "Hello"},
+        %{role: :assistant, content: "Hi!"},
+        %{role: :user, content: "How are you?"}
       ]
 
       sample = %MultiTurn{conversation: messages}
@@ -124,10 +123,10 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
   describe "messages_by_role/2" do
     test "filters messages by role" do
       messages = [
-        %Message{role: :user, content: "Hello"},
-        %Message{role: :assistant, content: "Hi!"},
-        %Message{role: :user, content: "How are you?"},
-        %Message{role: :assistant, content: "I'm doing well!"}
+        %{role: :user, content: "Hello"},
+        %{role: :assistant, content: "Hi!"},
+        %{role: :user, content: "How are you?"},
+        %{role: :assistant, content: "I'm doing well!"}
       ]
 
       sample = %MultiTurn{conversation: messages}
@@ -141,7 +140,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
     end
 
     test "returns empty list when no messages match role" do
-      messages = [%Message{role: :user, content: "Hello"}]
+      messages = [%{role: :user, content: "Hello"}]
       sample = %MultiTurn{conversation: messages}
 
       assert [] == MultiTurn.messages_by_role(sample, :system)
@@ -151,8 +150,8 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
   describe "turn_count/1" do
     test "counts messages in conversation" do
       messages = [
-        %Message{role: :user, content: "Hello"},
-        %Message{role: :assistant, content: "Hi!"}
+        %{role: :user, content: "Hello"},
+        %{role: :assistant, content: "Hi!"}
       ]
 
       sample = %MultiTurn{conversation: messages}
@@ -170,8 +169,8 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
       original = %MultiTurn{
         id: "conv_001",
         conversation: [
-          %Message{role: :user, content: "Hello"},
-          %Message{role: :assistant, content: "Hi!"}
+          %{role: :user, content: "Hello"},
+          %{role: :assistant, content: "Hi!"}
         ],
         retrieved_contexts: ["context1"],
         reference_contexts: ["ref1"],
@@ -194,7 +193,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
 
     test "to_map converts messages to maps" do
       sample = %MultiTurn{
-        conversation: [%Message{role: :user, content: "Hello"}]
+        conversation: [%{role: :user, content: "Hello"}]
       }
 
       map = MultiTurn.to_map(sample)
@@ -204,7 +203,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
       assert [%{role: :user, content: "Hello"}] = conversation_maps
     end
 
-    test "from_map converts message maps to structs" do
+    test "from_map preserves message maps" do
       map = %{
         conversation: [
           %{role: :user, content: "Hello"},
@@ -214,8 +213,8 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
 
       assert {:ok, sample} = MultiTurn.from_map(map)
       assert [msg1, msg2] = sample.conversation
-      assert %Message{role: :user, content: "Hello"} = msg1
-      assert %Message{role: :assistant, content: "Hi!"} = msg2
+      assert %{role: :user, content: "Hello"} = msg1
+      assert %{role: :assistant, content: "Hi!"} = msg2
     end
 
     test "from_map handles string keys" do
@@ -233,7 +232,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
   end
 
   describe "property tests" do
-    property "conversation must always be a non-empty list of Messages" do
+    property "conversation must always be a non-empty list of messages" do
       check all(
               messages <-
                 list_of(
@@ -246,7 +245,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
                 ),
               max_runs: 50
             ) do
-        conversation = Enum.map(messages, &struct(Message, &1))
+        conversation = messages
         attrs = %{conversation: conversation}
 
         assert {:ok, sample} = MultiTurn.new(attrs)
@@ -264,7 +263,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
         messages =
           Enum.map(1..conversation_size, fn i ->
             role = if rem(i, 2) == 1, do: :user, else: :assistant
-            %Message{role: role, content: "Message #{i}"}
+            %{role: role, content: "Message #{i}"}
           end)
 
         original = %MultiTurn{
@@ -288,7 +287,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
       messages =
         Enum.map(1..1000, fn i ->
           role = if rem(i, 2) == 1, do: :user, else: :assistant
-          %Message{role: role, content: "Message #{i}"}
+          %{role: role, content: "Message #{i}"}
         end)
 
       attrs = %{conversation: messages}
@@ -298,8 +297,8 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
 
     test "handles unicode content in messages" do
       messages = [
-        %Message{role: :user, content: "Hello 世界 🌍"},
-        %Message{role: :assistant, content: "مرحبا بالعالم"}
+        %{role: :user, content: "Hello 世界 🌍"},
+        %{role: :assistant, content: "مرحبا بالعالم"}
       ]
 
       attrs = %{conversation: messages}
@@ -309,10 +308,10 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
 
     test "handles all message roles" do
       messages = [
-        %Message{role: :user, content: "User message"},
-        %Message{role: :assistant, content: "Assistant message"},
-        %Message{role: :system, content: "System message"},
-        %Message{role: :tool, content: "Tool message", tool_call_id: "tool_123"}
+        %{role: :user, content: "User message"},
+        %{role: :assistant, content: "Assistant message"},
+        %{role: :system, content: "System message"},
+        %{role: :tool, content: "Tool message", tool_call_id: "tool_123"}
       ]
 
       attrs = %{conversation: messages}
@@ -320,8 +319,8 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
       assert sample.conversation == messages
     end
 
-    test "handles complex Message structures" do
-      complex_message = %Message{
+    test "handles complex message structures" do
+      complex_message = %{
         role: :assistant,
         content: "Complex response",
         tool_calls: [%{"id" => "call_1", "function" => %{"name" => "test"}}],
@@ -329,7 +328,7 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
       }
 
       messages = [
-        %Message{role: :user, content: "Hello"},
+        %{role: :user, content: "Hello"},
         complex_message
       ]
 

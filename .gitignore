@@ -21,3 +21,6 @@ jido_eval-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Local provider credentials loaded by Dotenvy for live evals.
+.env

@@ -63,6 +63,13 @@ defmodule Jido.Eval.Metric do
   @type config :: Jido.Eval.Config.t()
   @type opts :: keyword()
   @type score :: float()
+  @type metric_result :: %{
+          required(:score) => score(),
+          optional(:details) => map(),
+          optional(:judge_calls) => [map()],
+          optional(:metadata) => map()
+        }
+
   @type error_reason ::
           {:missing_field, atom()}
           | {:invalid_sample_type, atom()}
@@ -139,7 +146,8 @@ defmodule Jido.Eval.Metric do
       {:ok, 0.85} = MyMetric.evaluate(sample, config, [])
       {:error, {:missing_field, :response}} = MyMetric.evaluate(incomplete_sample, config, [])
   """
-  @callback evaluate(sample(), config(), opts()) :: {:ok, score()} | {:error, error_reason()}
+  @callback evaluate(sample(), config(), opts()) ::
+              {:ok, score() | metric_result()} | {:error, error_reason()}
 
   @doc """
   Validate that a sample has all required fields for this metric.

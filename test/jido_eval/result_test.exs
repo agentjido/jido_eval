@@ -70,6 +70,47 @@ defmodule Jido.Eval.ResultTest do
       assert error.category == "timeout"
     end
 
+    test "records per-metric failures while preserving successful scores" do
+      result = Result.new("test_run")
+
+      sample_result = %{
+        sample_id: "sample_1",
+        scores: %{faithfulness: 0.8},
+        metric_results: %{
+          faithfulness: %{
+            status: :ok,
+            score: 0.8,
+            error: nil,
+            details: %{},
+            judge_calls: [],
+            metadata: %{}
+          },
+          context_precision: %{
+            status: :error,
+            score: nil,
+            error: {:llm_error, :rate_limit},
+            details: %{},
+            judge_calls: [],
+            metadata: %{}
+          }
+        },
+        latency_ms: 1200,
+        error: nil,
+        tags: %{"category" => "qa"},
+        metadata: %{}
+      }
+
+      updated = Result.add_sample_result(result, sample_result)
+      finalized = Result.finalize(updated)
+
+      assert updated.completed_count == 1
+      assert updated.error_count == 1
+      assert finalized.summary_stats[:faithfulness].count == 1
+      assert finalized.summary_stats[:faithfulness].mean == 0.8
+
+      assert [%{metric: :context_precision, category: "llm_error"}] = finalized.errors
+    end
+
     test "updates tag statistics" do
       result = Result.new("test_run")
 

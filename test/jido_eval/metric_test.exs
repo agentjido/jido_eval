@@ -97,7 +97,7 @@ defmodule Jido.Eval.MetricTest do
     end
 
     test "validates multi-turn samples for compatible metrics" do
-      sample = %MultiTurn{conversation: [%Jido.AI.Message{role: :user, content: "Hello"}]}
+      sample = %MultiTurn{conversation: [%{role: :user, content: "Hello"}]}
 
       assert :ok = Metric.validate_sample(sample, TestMetricMultiTurn)
     end

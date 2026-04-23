@@ -4,7 +4,6 @@ defmodule Jido.Eval.DatasetTest do
   alias Jido.Eval.Dataset
   alias Jido.Eval.Dataset.InMemory
   alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
-  alias Jido.AI.Message
 
   doctest Dataset
 
@@ -27,7 +26,7 @@ defmodule Jido.Eval.DatasetTest do
 
     test "protocol functions return expected types" do
       samples = [
-        %MultiTurn{conversation: [%Message{role: :user, content: "Hello"}]}
+        %MultiTurn{conversation: [%{role: :user, content: "Hello"}]}
       ]
 
       {:ok, dataset} = InMemory.new(samples)
@@ -109,8 +108,8 @@ defmodule Jido.Eval.DatasetTest do
 
     test "correctly identifies multi-turn datasets" do
       samples = [
-        %MultiTurn{conversation: [%Message{role: :user, content: "Hello"}]},
-        %MultiTurn{conversation: [%Message{role: :assistant, content: "Hi"}]}
+        %MultiTurn{conversation: [%{role: :user, content: "Hello"}]},
+        %MultiTurn{conversation: [%{role: :assistant, content: "Hi"}]}
       ]
 
       {:ok, dataset} = InMemory.new(samples)

@@ -17,13 +17,12 @@ defmodule Jido.Eval.Sample.MultiTurn do
 
   ## Examples
 
-      iex> alias Jido.AI.Message
       iex> sample = %Jido.Eval.Sample.MultiTurn{
       ...>   id: "conv_001",
       ...>   conversation: [
-      ...>     %Message{role: :user, content: "Hello"},
-      ...>     %Message{role: :assistant, content: "Hi! How can I help?"},
-      ...>     %Message{role: :user, content: "What's the weather?"}
+      ...>     %{role: :user, content: "Hello"},
+      ...>     %{role: :assistant, content: "Hi! How can I help?"},
+      ...>     %{role: :user, content: "What's the weather?"}
       ...>   ],
       ...>   tags: %{"category" => "weather", "turns" => "3"}
       ...> }
@@ -52,10 +51,9 @@ defmodule Jido.Eval.Sample.MultiTurn do
 
   ## Examples
 
-      iex> alias Jido.AI.Message
       iex> {:ok, sample} = Jido.Eval.Sample.MultiTurn.new(%{
       ...>   conversation: [
-      ...>     %Message{role: :user, content: "Hello"}
+      ...>     %{role: :user, content: "Hello"}
       ...>   ]
       ...> })
       iex> length(sample.conversation)
@@ -87,7 +85,7 @@ defmodule Jido.Eval.Sample.MultiTurn do
         {:error, "Conversation cannot be empty"}
 
       not all_valid_messages?(sample.conversation) ->
-        {:error, "All conversation items must be valid Messages"}
+        {:error, "All conversation items must be valid messages"}
 
       true ->
         :ok
@@ -99,9 +97,8 @@ defmodule Jido.Eval.Sample.MultiTurn do
 
   ## Examples
 
-      iex> alias Jido.AI.Message
       iex> sample = %Jido.Eval.Sample.MultiTurn{conversation: []}
-      iex> message = %Message{role: :user, content: "Hello"}
+      iex> message = %{role: :user, content: "Hello"}
       iex> updated = Jido.Eval.Sample.MultiTurn.add_message(sample, message)
       iex> length(updated.conversation)
       1
@@ -135,11 +132,10 @@ defmodule Jido.Eval.Sample.MultiTurn do
 
   ## Examples
 
-      iex> alias Jido.AI.Message
       iex> sample = %Jido.Eval.Sample.MultiTurn{
       ...>   conversation: [
-      ...>     %Message{role: :user, content: "Hello"},
-      ...>     %Message{role: :assistant, content: "Hi!"}
+      ...>     %{role: :user, content: "Hello"},
+      ...>     %{role: :assistant, content: "Hi!"}
       ...>   ]
       ...> }
       iex> last_message = Jido.Eval.Sample.MultiTurn.last_message(sample)
@@ -156,12 +152,11 @@ defmodule Jido.Eval.Sample.MultiTurn do
 
   ## Examples
 
-      iex> alias Jido.AI.Message
       iex> sample = %Jido.Eval.Sample.MultiTurn{
       ...>   conversation: [
-      ...>     %Message{role: :user, content: "Hello"},
-      ...>     %Message{role: :assistant, content: "Hi!"},
-      ...>     %Message{role: :user, content: "How are you?"}
+      ...>     %{role: :user, content: "Hello"},
+      ...>     %{role: :assistant, content: "Hi!"},
+      ...>     %{role: :user, content: "How are you?"}
       ...>   ]
       ...> }
       iex> user_messages = Jido.Eval.Sample.MultiTurn.messages_by_role(sample, :user)
@@ -179,11 +174,10 @@ defmodule Jido.Eval.Sample.MultiTurn do
 
   ## Examples
 
-      iex> alias Jido.AI.Message
       iex> sample = %Jido.Eval.Sample.MultiTurn{
       ...>   conversation: [
-      ...>     %Message{role: :user, content: "Hello"},
-      ...>     %Message{role: :assistant, content: "Hi!"}
+      ...>     %{role: :user, content: "Hello"},
+      ...>     %{role: :assistant, content: "Hi!"}
       ...>   ]
       ...> }
       iex> Jido.Eval.Sample.MultiTurn.turn_count(sample)

@@ -32,7 +32,7 @@ defmodule Jido.Eval.EngineTest do
         max_workers: Keyword.get(opts, :max_workers, 2),
         timeout: Keyword.get(opts, :timeout, 10_000)
       },
-      model_spec: "test:mock",
+      model_spec: "openai:gpt-3.5-turbo",
       tags: Keyword.get(opts, :tags, %{"test" => "engine"})
     }
   end

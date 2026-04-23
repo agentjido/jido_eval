@@ -1,8 +1,8 @@
 defmodule Jido.Eval.LLMTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Jido.Eval.{LLM, RetryPolicy}
-  alias Jido.AI.Error
+  alias ReqLLM.Error
 
   # Macro imports for HTTP testing
   defmacro with_success(body, do: block) do
@@ -35,11 +35,21 @@ defmodule Jido.Eval.LLMTest do
 
     # Set up Req.Test for HTTP mocking
     test_name = :"llm_test_#{:rand.uniform(1_000_000)}"
-    Application.put_env(:jido_ai, :http_client, Req)
-    Application.put_env(:jido_ai, :http_options, plug: {Req.Test, test_name})
+    previous_judge_opts = Application.get_env(:jido_eval, :judge_opts)
+    previous_llm_opts = Application.get_env(:jido_eval, :llm_opts)
+    previous_llm_stub = Application.get_env(:jido_eval, :llm_stub)
+    previous_openai_key = Application.get_env(:req_llm, :openai_api_key)
 
-    # Set up test API key to bypass validation
-    Application.put_env(:jido_ai, :openai, api_key: "test-key")
+    Application.delete_env(:jido_eval, :llm_stub)
+    Application.put_env(:req_llm, :openai_api_key, "test-key")
+
+    judge_opts = [
+      api_key: "test-key",
+      req_http_options: [plug: {Req.Test, test_name}]
+    ]
+
+    Application.put_env(:jido_eval, :judge_opts, judge_opts)
+    Application.put_env(:jido_eval, :llm_opts, judge_opts)
 
     on_exit(fn ->
       try do
@@ -48,7 +58,29 @@ defmodule Jido.Eval.LLMTest do
         _ -> :ok
       end
 
-      Application.delete_env(:jido_ai, :openai)
+      if previous_judge_opts do
+        Application.put_env(:jido_eval, :judge_opts, previous_judge_opts)
+      else
+        Application.delete_env(:jido_eval, :judge_opts)
+      end
+
+      if previous_llm_opts do
+        Application.put_env(:jido_eval, :llm_opts, previous_llm_opts)
+      else
+        Application.delete_env(:jido_eval, :llm_opts)
+      end
+
+      if previous_llm_stub do
+        Application.put_env(:jido_eval, :llm_stub, previous_llm_stub)
+      else
+        Application.delete_env(:jido_eval, :llm_stub)
+      end
+
+      if previous_openai_key do
+        Application.put_env(:req_llm, :openai_api_key, previous_openai_key)
+      else
+        Application.delete_env(:req_llm, :openai_api_key)
+      end
     end)
 
     {:ok, test_name: test_name}
@@ -57,7 +89,7 @@ defmodule Jido.Eval.LLMTest do
   describe "generate_text/3" do
     test "successful text generation without retry", %{test_name: test_name} do
       with_success(%{choices: [%{message: %{content: "Hello, world!"}}]}) do
-        assert {:ok, "Hello, world!"} = LLM.generate_text("openai:gpt-4o", "Say hello")
+        assert {:ok, "Hello, world!"} = LLM.generate_text("openai:gpt-3.5-turbo", "Say hello")
       end
     end
 
@@ -65,11 +97,17 @@ defmodule Jido.Eval.LLMTest do
       stub_openai_success(test_name, "Response")
 
       # String format
-      assert {:ok, "Response"} = LLM.generate_text("openai:gpt-4o", "Test")
+      assert {:ok, "Response"} = LLM.generate_text("openai:gpt-3.5-turbo", "Test")
 
-      # Tuple format
+      # Pre-resolved LLMDB model format
+      {:ok, model} = LLMDB.model("openai:gpt-3.5-turbo")
       stub_openai_success(test_name, "Response")
-      assert {:ok, "Response"} = LLM.generate_text({:openai, model: "gpt-4o"}, "Test")
+      assert {:ok, "Response"} = LLM.generate_text(model, "Test")
+    end
+
+    test "rejects unsupported map model specs without an intermediate shim" do
+      assert {:error, %Error.Validation.Error{tag: :invalid_model_spec}} =
+               LLM.generate_text(%{provider: :openai, model: "gpt-3.5-turbo"}, "Test")
     end
 
     test "retries on rate limit errors", %{test_name: test_name} do
@@ -81,7 +119,7 @@ defmodule Jido.Eval.LLMTest do
         policy = %RetryPolicy{max_retries: 2, base_delay: 10, jitter: false}
 
         assert {:ok, "Success after retry"} =
-                 LLM.generate_text("openai:gpt-4o", "Test", retry_policy: policy)
+                 LLM.generate_text("openai:gpt-3.5-turbo", "Test", retry_policy: policy)
       end
     end
 
@@ -95,7 +133,7 @@ defmodule Jido.Eval.LLMTest do
       policy = %RetryPolicy{max_retries: 2, base_delay: 10, jitter: false}
 
       assert {:ok, "Success after timeout"} =
-               LLM.generate_text("openai:gpt-4o", "Test", retry_policy: policy)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", retry_policy: policy)
     end
 
     test "retries on server errors (5xx)", %{test_name: test_name} do
@@ -108,7 +146,7 @@ defmodule Jido.Eval.LLMTest do
       policy = %RetryPolicy{max_retries: 2, base_delay: 10, jitter: false}
 
       assert {:ok, "Success after server error"} =
-               LLM.generate_text("openai:gpt-4o", "Test", retry_policy: policy)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", retry_policy: policy)
     end
 
     test "does not retry on non-retryable errors", %{test_name: test_name} do
@@ -118,7 +156,7 @@ defmodule Jido.Eval.LLMTest do
       policy = %RetryPolicy{max_retries: 2}
 
       assert {:error, %Error.API.Request{status: 400}} =
-               LLM.generate_text("openai:gpt-4o", "Test", retry_policy: policy)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", retry_policy: policy)
     end
 
     test "respects max_retries limit", %{test_name: test_name} do
@@ -128,7 +166,7 @@ defmodule Jido.Eval.LLMTest do
       policy = %RetryPolicy{max_retries: 2, base_delay: 1, jitter: false}
 
       assert {:error, %Error.API.Request{status: 429}} =
-               LLM.generate_text("openai:gpt-4o", "Test", retry_policy: policy)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", retry_policy: policy)
     end
 
     test "calculates exponential backoff delays correctly" do
@@ -150,7 +188,7 @@ defmodule Jido.Eval.LLMTest do
       schema = [score: [type: :float, required: true]]
 
       assert {:ok, %{score: 0.8}} =
-               LLM.generate_object("openai:gpt-4o", "Rate this", schema)
+               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema)
     end
 
     test "retries object generation on retryable errors", %{test_name: test_name} do
@@ -164,7 +202,9 @@ defmodule Jido.Eval.LLMTest do
       policy = %RetryPolicy{max_retries: 2, base_delay: 10, jitter: false}
 
       assert {:ok, %{score: 0.9}} =
-               LLM.generate_object("openai:gpt-4o", "Rate this", schema, retry_policy: policy)
+               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema,
+                 retry_policy: policy
+               )
     end
 
     test "validates schema after successful retry", %{test_name: test_name} do
@@ -177,7 +217,91 @@ defmodule Jido.Eval.LLMTest do
       policy = %RetryPolicy{max_retries: 2, base_delay: 10, jitter: false}
 
       assert {:ok, %{score: 0.85}} =
-               LLM.generate_object("openai:gpt-4o", "Rate this", schema, retry_policy: policy)
+               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema,
+                 retry_policy: policy
+               )
+    end
+  end
+
+  describe "text/3 and object/4 judge calls" do
+    test "resolves string specs with LLMDB.model/1 and passes the model to stubs" do
+      parent = self()
+
+      Application.put_env(:jido_eval, :llm_stub, fn :text,
+                                                    %LLMDB.Model{} = model,
+                                                    prompt,
+                                                    _schema,
+                                                    _opts ->
+        send(parent, {:judge_model, LLMDB.Model.spec(model), prompt})
+        {:ok, "stubbed response"}
+      end)
+
+      assert {:ok, call} = LLM.text("openai:gpt-3.5-turbo", "Test prompt")
+
+      assert_received {:judge_model, "openai:gpt-3.5-turbo", "Test prompt"}
+      assert call.type == :text
+      assert call.text == "stubbed response"
+      assert call.output == "stubbed response"
+      assert call.raw_response == nil
+      assert call.usage == nil
+      assert call.finish_reason == nil
+      assert call.provider_meta == %{}
+      assert %LLMDB.Model{} = call.model
+      assert call.model_spec == "openai:gpt-3.5-turbo"
+      assert call.cache_hit == false
+    end
+
+    test "preserves text response metadata from ReqLLM", %{test_name: test_name} do
+      Req.Test.stub(test_name, fn conn ->
+        Req.Test.json(conn, %{
+          id: "chatcmpl-test",
+          model: "gpt-3.5-turbo",
+          choices: [
+            %{
+              finish_reason: "stop",
+              message: %{role: "assistant", content: "Metadata response"}
+            }
+          ],
+          usage: %{prompt_tokens: 4, completion_tokens: 2, total_tokens: 6}
+        })
+      end)
+
+      assert {:ok, call} = LLM.text("openai:gpt-3.5-turbo", "Test")
+
+      assert call.type == :text
+      assert call.text == "Metadata response"
+      assert call.output == "Metadata response"
+      assert %ReqLLM.Response{} = call.raw_response
+      assert is_map(call.usage)
+      assert call.finish_reason == :stop
+      assert call.model_spec == "openai:gpt-3.5-turbo"
+      assert is_integer(call.latency_ms)
+
+      summary = LLM.summarize_call(call)
+      assert summary.output == "Metadata response"
+      refute Map.has_key?(summary, :raw_response)
+    end
+
+    test "preserves object output and response metadata from ReqLLM", %{test_name: test_name} do
+      stub_openai_object_success(test_name, %{score: 0.8, reasoning: "Looks grounded"})
+
+      schema = %{
+        "type" => "object",
+        "required" => ["score", "reasoning"],
+        "properties" => %{
+          "score" => %{"type" => "number"},
+          "reasoning" => %{"type" => "string"}
+        }
+      }
+
+      assert {:ok, call} = LLM.object("openai:gpt-3.5-turbo", "Rate this", schema)
+
+      assert call.type == :object
+      assert call.object == %{score: 0.8, reasoning: "Looks grounded"}
+      assert call.output == %{score: 0.8, reasoning: "Looks grounded"}
+      assert %ReqLLM.Response{} = call.raw_response
+      assert call.model_spec == "openai:gpt-3.5-turbo"
+      assert call.cache_hit == false
     end
   end
 
@@ -187,11 +311,26 @@ defmodule Jido.Eval.LLMTest do
 
       # First call should hit the API
       assert {:ok, "Cached response"} =
-               LLM.generate_text("openai:gpt-4o", "Test prompt", cache: true)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test prompt", cache: true)
 
       # Second call should use cache (no additional HTTP stub needed)
       assert {:ok, "Cached response"} =
-               LLM.generate_text("openai:gpt-4o", "Test prompt", cache: true)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test prompt", cache: true)
+    end
+
+    test "marks rich judge calls as cache hits on repeated reads", %{test_name: test_name} do
+      stub_openai_success(test_name, "Cached metadata response")
+
+      assert {:ok, first_call} =
+               LLM.text("openai:gpt-3.5-turbo", "Test prompt", cache: true)
+
+      assert first_call.cache_hit == false
+
+      assert {:ok, second_call} =
+               LLM.text("openai:gpt-3.5-turbo", "Test prompt", cache: true)
+
+      assert second_call.cache_hit == true
+      assert second_call.text == "Cached metadata response"
     end
 
     test "caches successful object generation responses", %{test_name: test_name} do
@@ -201,11 +340,11 @@ defmodule Jido.Eval.LLMTest do
 
       # First call should hit the API
       assert {:ok, %{score: 0.7}} =
-               LLM.generate_object("openai:gpt-4o", "Rate this", schema, cache: true)
+               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema, cache: true)
 
       # Second call should use cache (no additional HTTP stub needed)
       assert {:ok, %{score: 0.7}} =
-               LLM.generate_object("openai:gpt-4o", "Rate this", schema, cache: true)
+               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema, cache: true)
     end
 
     test "different prompts create different cache keys", %{test_name: test_name} do
@@ -222,17 +361,17 @@ defmodule Jido.Eval.LLMTest do
 
       # Each prompt should hit the API and get different responses
       assert {:ok, "Response 1"} =
-               LLM.generate_text("openai:gpt-4o", "Prompt 1", cache: true)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Prompt 1", cache: true)
 
       assert {:ok, "Response 2"} =
-               LLM.generate_text("openai:gpt-4o", "Prompt 2", cache: true)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Prompt 2", cache: true)
     end
 
     test "different model specs create different cache keys", %{test_name: test_name} do
       # Set up sequential responses based on temperature parameter
       Req.Test.stub(test_name, fn conn ->
         case Map.get(conn.body_params, "temperature") do
-          nil ->
+          value when value in [nil, 0.2] ->
             Req.Test.json(conn, %{choices: [%{message: %{content: "Default temp response"}}]})
 
           0.5 ->
@@ -242,11 +381,14 @@ defmodule Jido.Eval.LLMTest do
 
       # Each model config should hit the API and get different responses
       assert {:ok, "Default temp response"} =
-               LLM.generate_text("openai:gpt-4o", "Same prompt", cache: true)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Same prompt", cache: true)
 
       # Even with same prompt, different model options should create different cache key
       assert {:ok, "Temp 0.5 response"} =
-               LLM.generate_text("openai:gpt-4o", "Same prompt", cache: true, temperature: 0.5)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Same prompt",
+                 cache: true,
+                 temperature: 0.5
+               )
     end
 
     test "cache TTL expires entries", %{test_name: test_name} do
@@ -254,7 +396,7 @@ defmodule Jido.Eval.LLMTest do
 
       # Cache with very short TTL
       assert {:ok, "First response"} =
-               LLM.generate_text("openai:gpt-4o", "Test", cache: true, cache_ttl: 10)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", cache: true, cache_ttl: 10)
 
       # Wait for cache to expire
       Process.sleep(15)
@@ -263,7 +405,7 @@ defmodule Jido.Eval.LLMTest do
       stub_openai_success(test_name, "Second response")
 
       assert {:ok, "Second response"} =
-               LLM.generate_text("openai:gpt-4o", "Test", cache: true, cache_ttl: 10)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", cache: true, cache_ttl: 10)
     end
 
     test "clear_cache/0 removes all cached entries", %{test_name: test_name} do
@@ -271,7 +413,7 @@ defmodule Jido.Eval.LLMTest do
 
       # Cache a response
       assert {:ok, "First response"} =
-               LLM.generate_text("openai:gpt-4o", "Test", cache: true)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", cache: true)
 
       # Clear cache
       assert :ok = LLM.clear_cache()
@@ -280,7 +422,7 @@ defmodule Jido.Eval.LLMTest do
       stub_openai_success(test_name, "After clear")
 
       assert {:ok, "After clear"} =
-               LLM.generate_text("openai:gpt-4o", "Test", cache: true)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", cache: true)
     end
 
     test "caching is disabled by default" do
@@ -296,15 +438,15 @@ defmodule Jido.Eval.LLMTest do
       stub_error(test_name, 400, %{error: %{message: "API error"}})
 
       assert {:error, %Error.API.Request{status: 400}} =
-               LLM.generate_text("openai:gpt-4o", "Test")
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test")
     end
 
     test "normalizes unknown errors", %{test_name: test_name} do
       stub_transport_error(test_name, :econnrefused)
 
-      assert {:error, error} = LLM.generate_text("openai:gpt-4o", "Test")
+      assert {:error, error} = LLM.generate_text("openai:gpt-3.5-turbo", "Test")
       # Just check it's some kind of error
-      assert match?(%Error.API.Request{}, error) or match?(%Error.Unknown.Unknown{}, error)
+      assert match?(%Error.API.Request{}, error) or match?(%Error.Unknown{}, error)
     end
   end
 
@@ -314,7 +456,10 @@ defmodule Jido.Eval.LLMTest do
 
       # Verify that non-LLM options are passed through
       assert {:ok, "Success"} =
-               LLM.generate_text("openai:gpt-4o", "Test", temperature: 0.7, max_tokens: 100)
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test",
+                 temperature: 0.7,
+                 max_tokens: 100
+               )
     end
 
     test "extracts LLM-specific options correctly" do

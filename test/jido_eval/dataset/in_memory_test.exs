@@ -5,7 +5,6 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
   alias Jido.Eval.Dataset
   alias Jido.Eval.Dataset.InMemory
   alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
-  alias Jido.AI.Message
 
   doctest InMemory
 
@@ -23,8 +22,8 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
 
     test "creates dataset from multi-turn samples" do
       samples = [
-        %MultiTurn{conversation: [%Message{role: :user, content: "Hello"}]},
-        %MultiTurn{conversation: [%Message{role: :assistant, content: "Hi!"}]}
+        %MultiTurn{conversation: [%{role: :user, content: "Hello"}]},
+        %MultiTurn{conversation: [%{role: :assistant, content: "Hi!"}]}
       ]
 
       assert {:ok, dataset} = InMemory.new(samples)
@@ -35,7 +34,7 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
     test "rejects mixed sample types" do
       samples = [
         %SingleTurn{user_input: "Hello"},
-        %MultiTurn{conversation: [%Message{role: :user, content: "Hi"}]}
+        %MultiTurn{conversation: [%{role: :user, content: "Hi"}]}
       ]
 
       assert {:error, reason} = InMemory.new(samples)
@@ -89,7 +88,7 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
 
     test "rejects sample with wrong type" do
       {:ok, dataset} = InMemory.empty(:single_turn)
-      wrong_sample = %MultiTurn{conversation: [%Message{role: :user, content: "Hello"}]}
+      wrong_sample = %MultiTurn{conversation: [%{role: :user, content: "Hello"}]}
 
       assert {:error, reason} = InMemory.add_sample(dataset, wrong_sample)
       assert reason == "Sample type does not match dataset type"
@@ -145,7 +144,7 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
       {:ok, single_dataset} = InMemory.new(single_samples)
       assert Dataset.sample_type(single_dataset) == :single_turn
 
-      multi_samples = [%MultiTurn{conversation: [%Message{role: :user, content: "Hello"}]}]
+      multi_samples = [%MultiTurn{conversation: [%{role: :user, content: "Hello"}]}]
       {:ok, multi_dataset} = InMemory.new(multi_samples)
       assert Dataset.sample_type(multi_dataset) == :multi_turn
     end

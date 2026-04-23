@@ -168,28 +168,53 @@ defmodule Jido.Eval.Metrics.Utils do
   ## Parameters
 
   - `metric_name` - Name of the metric for logging
-  - `model_spec` - Model specification (string, tuple, or struct)
+  - `model_spec` - Model specification string or pre-resolved `%LLMDB.Model{}`
   - `prompt` - Prompt to send to LLM
   - `opts` - Additional options
 
   ## Returns
 
   - `{:ok, String.t()}` - LLM response
-  - `{:error, term()}` - Error with metric context
+  - `{:error, term()}` - Error returned by the judge adapter
   """
-  @spec execute_llm_metric(String.t(), String.t(), String.t(), keyword()) ::
+  @spec execute_llm_metric(String.t(), Jido.Eval.LLM.model_spec(), String.t(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def execute_llm_metric(metric_name, model_spec, prompt, opts) do
     Logger.debug("Executing #{metric_name} metric with LLM")
 
-    case Jido.Eval.LLM.generate_text(model_spec, prompt, opts) do
-      {:ok, response} ->
+    case Jido.Eval.LLM.text(model_spec, prompt, opts) do
+      {:ok, call} ->
         Logger.debug("#{metric_name} metric LLM call successful")
-        {:ok, response}
+        {:ok, call.text}
 
       {:error, reason} ->
         Logger.warning("#{metric_name} metric LLM call failed: #{inspect(reason)}")
-        {:error, {:llm_error, reason}}
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Execute a structured LLM-based metric evaluation with error handling.
+  """
+  @spec execute_llm_object_metric(
+          String.t(),
+          Jido.Eval.LLM.model_spec(),
+          String.t(),
+          keyword() | map(),
+          keyword()
+        ) ::
+          {:ok, {map(), map()}} | {:error, term()}
+  def execute_llm_object_metric(metric_name, model_spec, prompt, schema, opts) do
+    Logger.debug("Executing #{metric_name} metric with structured LLM output")
+
+    case Jido.Eval.LLM.object(model_spec, prompt, schema, opts) do
+      {:ok, call} ->
+        Logger.debug("#{metric_name} metric structured LLM call successful")
+        {:ok, {call.object, Jido.Eval.LLM.summarize_call(call)}}
+
+      {:error, reason} ->
+        Logger.warning("#{metric_name} metric structured LLM call failed: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 

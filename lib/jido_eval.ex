@@ -18,7 +18,7 @@ defmodule Jido.Eval do
   All evaluation options can be configured through the `Jido.Eval.Config` struct:
 
       config = %Jido.Eval.Config{
-        model_spec: "openai:gpt-4o",
+        judge_model: "openai:gpt-4o",
         run_config: %Jido.Eval.RunConfig{max_workers: 8}
       }
 
@@ -87,7 +87,8 @@ defmodule Jido.Eval do
   - `opts` - Evaluation options:
     - `:metrics` - List of metric atoms (required)
     - `:config` - Evaluation configuration (optional)
-    - `:llm` - LLM model specification (optional)
+    - `:judge_model` - Judge model specification (optional)
+    - `:llm` - Deprecated alias for `:judge_model`
     - `:timeout` - Timeout for execution (optional)
     - `:run_config` - Execution configuration overrides (optional)
     - `:reporters`, `:stores`, `:broadcasters`, `:processors` - Component configs
@@ -106,7 +107,7 @@ defmodule Jido.Eval do
       # Custom configuration
       {:ok, result} = Jido.Eval.evaluate(dataset,
         metrics: [:faithfulness, :context_precision],
-        llm: "anthropic:claude-3-5-sonnet",
+        judge_model: "anthropic:claude-3-5-sonnet",
         run_config: %{max_workers: 4, timeout: 60_000},
         tags: %{"experiment" => "ablation_study"}
       )
@@ -117,7 +118,12 @@ defmodule Jido.Eval do
       metrics = Keyword.fetch!(opts, :metrics)
       config = build_config(opts)
       timeout = Keyword.get(opts, :timeout, config.run_config.timeout)
-      Engine.evaluate_sync(dataset, config, metrics, timeout: timeout)
+
+      if Keyword.get(opts, :sync, true) do
+        Engine.evaluate_sync(dataset, config, metrics, timeout: timeout)
+      else
+        Engine.start_evaluation(dataset, config, metrics, opts)
+      end
     else
       {:error, reason} -> {:error, reason}
     end
@@ -132,7 +138,8 @@ defmodule Jido.Eval do
   - `opts` - Evaluation options:
     - `:metrics` - List of metric atoms (required)
     - `:config` - Evaluation configuration (optional)
-    - `:llm` - LLM model specification (optional)
+    - `:judge_model` - Judge model specification (optional)
+    - `:llm` - Deprecated alias for `:judge_model`
     - `:run_config` - Execution configuration overrides (optional)
     - `:reporters`, `:stores`, `:broadcasters`, `:processors` - Component configs
     - `:tags` - Metadata tags for the run (optional)
@@ -292,13 +299,17 @@ defmodule Jido.Eval do
     # Apply option overrides
     config =
       base_config
-      |> maybe_update(:model_spec, Keyword.get(opts, :llm))
+      |> maybe_update(:judge_model, Keyword.get(opts, :judge_model) || Keyword.get(opts, :llm))
+      |> maybe_update(:model_spec, Keyword.get(opts, :judge_model) || Keyword.get(opts, :llm))
       |> maybe_update(:reporters, Keyword.get(opts, :reporters))
       |> maybe_update(:stores, Keyword.get(opts, :stores))
       |> maybe_update(:broadcasters, Keyword.get(opts, :broadcasters))
       |> maybe_update(:processors, Keyword.get(opts, :processors))
+      |> maybe_update(:judge_opts, Keyword.get(opts, :judge_opts) || Keyword.get(opts, :llm_opts))
+      |> maybe_update(:llm_opts, Keyword.get(opts, :judge_opts) || Keyword.get(opts, :llm_opts))
       |> maybe_update(:tags, Keyword.get(opts, :tags))
       |> maybe_update_run_config(Keyword.get(opts, :run_config))
+      |> Config.normalize()
 
     # Ensure run_id is set
     {:ok, updated_config} = Config.ensure_run_id(config)

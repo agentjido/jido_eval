@@ -46,17 +46,17 @@ defmodule Jido.EvalTest do
       {:ok, result} =
         Eval.evaluate(dataset,
           metrics: [:faithfulness],
-          llm: "test:custom-model"
+          llm: "openai:gpt-3.5-turbo"
         )
 
-      assert result.config.model_spec == "test:custom-model"
+      assert result.config.model_spec == "openai:gpt-3.5-turbo"
     end
 
     test "evaluation with custom configuration" do
       dataset = sample_dataset()
 
       config = %Config{
-        model_spec: "test:configured",
+        model_spec: "openai:gpt-3.5-turbo",
         tags: %{"experiment" => "custom_config"}
       }
 
@@ -66,7 +66,7 @@ defmodule Jido.EvalTest do
           config: config
         )
 
-      assert result.config.model_spec == "test:configured"
+      assert result.config.model_spec == "openai:gpt-3.5-turbo"
       assert result.config.tags["experiment"] == "custom_config"
     end
 
@@ -174,12 +174,12 @@ defmodule Jido.EvalTest do
         Eval.evaluate(dataset,
           metrics: [:faithfulness],
           sync: false,
-          llm: "test:async-model",
+          llm: "openai:gpt-3.5-turbo",
           tags: %{"mode" => "async"}
         )
 
       {:ok, result} = Eval.await_result(run_id, 15_000)
-      assert result.config.model_spec == "test:async-model"
+      assert result.config.model_spec == "openai:gpt-3.5-turbo"
       assert result.config.tags["mode"] == "async"
     end
   end

@@ -59,6 +59,7 @@ defmodule Jido.Eval.Result do
   @type sample_result :: %{
           sample_id: String.t() | nil,
           scores: %{atom() => float()},
+          metric_results: %{atom() => map()},
           latency_ms: non_neg_integer() | nil,
           error: String.t() | nil,
           tags: %{String.t() => String.t()},
@@ -153,6 +154,7 @@ defmodule Jido.Eval.Result do
   @spec add_sample_result(t(), sample_result()) :: t()
   def add_sample_result(result, sample_result) do
     updated_results = [sample_result | result.sample_results]
+    errors = extract_sample_errors(sample_result)
 
     updated_result = %{
       result
@@ -160,21 +162,12 @@ defmodule Jido.Eval.Result do
         sample_count: result.sample_count + 1
     }
 
-    cond do
-      sample_result.error != nil ->
-        error = %{
-          sample_id: sample_result.sample_id,
-          metric: nil,
-          error: sample_result.error,
-          category: categorize_error(sample_result.error),
-          timestamp: DateTime.utc_now()
-        }
-
-        %{updated_result | error_count: result.error_count + 1, errors: [error | result.errors]}
-
-      true ->
-        %{updated_result | completed_count: result.completed_count + 1}
-    end
+    %{
+      updated_result
+      | completed_count: result.completed_count + if(sample_result.error == nil, do: 1, else: 0),
+        error_count: result.error_count + length(errors),
+        errors: errors ++ result.errors
+    }
     |> update_tag_stats(sample_result)
   end
 
@@ -222,11 +215,14 @@ defmodule Jido.Eval.Result do
   defp calculate_summary_stats(result) do
     summary_stats =
       result.sample_results
-      |> Enum.reject(fn sample -> sample.error != nil end)
       |> Enum.reduce(%{}, fn sample, acc ->
         Enum.reduce(sample.scores, acc, fn {metric, score}, metric_acc ->
-          scores = Map.get(metric_acc, metric, [])
-          Map.put(metric_acc, metric, [score | scores])
+          if is_number(score) do
+            scores = Map.get(metric_acc, metric, [])
+            Map.put(metric_acc, metric, [score | scores])
+          else
+            metric_acc
+          end
         end)
       end)
       |> Enum.into(%{}, fn {metric, scores} ->
@@ -304,11 +300,9 @@ defmodule Jido.Eval.Result do
   end
 
   defp calculate_pass_rate(result) do
-    completed_samples = Enum.filter(result.sample_results, fn sample -> sample.error == nil end)
-
     # Only calculate pass rate if we have samples with actual scores
     samples_with_scores =
-      Enum.filter(completed_samples, fn sample ->
+      Enum.filter(result.sample_results, fn sample ->
         map_size(sample.scores) > 0
       end)
 
@@ -373,14 +367,10 @@ defmodule Jido.Eval.Result do
           total: current[:total] + 1,
           completed: current[:completed] + if(sample_result.error == nil, do: 1, else: 0),
           scores:
-            case sample_result.error do
-              nil ->
-                new_scores = sample_result.scores |> Map.values()
-                (current[:scores] || []) ++ new_scores
-
-              _ ->
-                current[:scores] || []
-            end
+            (current[:scores] || []) ++
+              (sample_result.scores
+               |> Map.values()
+               |> Enum.filter(&is_number/1))
         }
 
         Map.put(acc, key, updated)
@@ -400,6 +390,40 @@ defmodule Jido.Eval.Result do
   end
 
   defp categorize_error(_), do: "unknown"
+
+  defp extract_sample_errors(sample_result) do
+    metric_errors =
+      sample_result
+      |> Map.get(:metric_results, %{})
+      |> Enum.flat_map(fn
+        {metric, %{status: :error, error: reason}} ->
+          [build_error(sample_result.sample_id, metric, inspect(reason))]
+
+        _ ->
+          []
+      end)
+
+    cond do
+      metric_errors != [] ->
+        metric_errors
+
+      sample_result.error != nil ->
+        [build_error(sample_result.sample_id, nil, sample_result.error)]
+
+      true ->
+        []
+    end
+  end
+
+  defp build_error(sample_id, metric, error) do
+    %{
+      sample_id: sample_id,
+      metric: metric,
+      error: error,
+      category: categorize_error(error),
+      timestamp: DateTime.utc_now()
+    }
+  end
 
   defp percentile([], _), do: 0.0
   defp percentile([single], _), do: single

@@ -1,82 +1,44 @@
 defmodule Jido.Eval.Metrics.ContextPrecision do
   @moduledoc """
-  Context Precision metric for evaluating relevance of retrieved contexts to the user question.
+  Context Precision metric for evaluating retrieved context relevance.
 
-  This metric measures how relevant the retrieved contexts are for answering the user's question.
-  It uses an LLM to rate each context's relevance and computes precision based on the
-  position of relevant contexts in the retrieval ranking.
-
-  The metric returns a score between 0.0 and 1.0, where:
-  - 1.0 = All retrieved contexts are relevant, with most relevant ones ranked first
-  - 0.0 = No retrieved contexts are relevant to the question
-
-  ## Algorithm
-
-  1. For each retrieved context, determine if it's relevant to answering the question
-  2. Calculate precision at each position based on relevant contexts seen so far
-  3. Return average precision across all positions (Mean Average Precision)
-
-  ## Required Fields
-
-  - `:user_input` - The user's original question
-  - `:retrieved_contexts` - List of context documents in retrieval order
-  - `:reference` - The expected/ideal answer (used for relevance judgment)
-
-  ## Examples
-
-      # High precision - relevant contexts ranked first
-      sample = %SingleTurn{
-        user_input: "What is the capital of France?",
-        retrieved_contexts: [
-          "Paris is the capital and largest city of France.",
-          "France is a country in Western Europe.", 
-          "The Eiffel Tower is located in Paris."
-        ],
-        reference: "Paris is the capital of France."
-      }
-      {:ok, 1.0} = ContextPrecision.evaluate(sample, config, [])
-
-      # Lower precision - irrelevant contexts mixed in
-      sample = %SingleTurn{
-        user_input: "What is the capital of France?",
-        retrieved_contexts: [
-          "Germany is a country in Central Europe.",  # irrelevant
-          "Paris is the capital and largest city of France.",  # relevant
-          "Spain shares a border with France."  # somewhat relevant
-        ],
-        reference: "Paris is the capital of France."
-      }
-      {:ok, 0.5} = ContextPrecision.evaluate(sample, config, [])
-
-  ## Configuration
-
-  Uses the configured LLM model from `config.llm` for relevance judgments.
-  Supports timeout configuration via opts: `[timeout: 30_000]`
+  The metric asks a structured judge whether each retrieved context is useful for
+  answering the user question, then calculates average precision over the
+  retrieval order.
   """
 
   @behaviour Jido.Eval.Metric
 
+  alias Jido.Eval.Config
   alias Jido.Eval.Metrics.Utils
   alias Jido.Eval.Sample.SingleTurn
 
   require Logger
 
-  # LLM prompt for context relevance evaluation
   @relevance_check_prompt """
-  Given a user question, a reference answer, and a context passage, determine if the context is relevant for answering the question.
+  Given a user question, a reference answer, and a context passage, determine whether the context is relevant for answering the question.
 
-  A context is relevant if it contains information that would help answer the user's question, even if it doesn't contain the complete answer.
+  A context is relevant if it contains information that helps answer the user's question, even if it does not contain the full answer.
 
-  User Question: {{user_input}}
+  User Question:
+  {{user_input}}
 
-  Reference Answer: {{reference}}
+  Reference Answer:
+  {{reference}}
 
-  Context: {{context}}
-
-  Is this context relevant for answering the user's question? Answer with only "YES" or "NO".
-
-  Answer:
+  Context:
+  {{context}}
   """
+
+  @relevance_schema %{
+    "type" => "object",
+    "required" => ["relevant", "reasoning"],
+    "additionalProperties" => false,
+    "properties" => %{
+      "relevant" => %{"type" => "boolean"},
+      "reasoning" => %{"type" => "string"}
+    }
+  }
 
   @impl true
   def name, do: "Context Precision"
@@ -84,7 +46,7 @@ defmodule Jido.Eval.Metrics.ContextPrecision do
   @impl true
   def description do
     "Measures the relevance of retrieved contexts to the user question by evaluating " <>
-      "how many of the retrieved contexts are actually useful for answering the question"
+      "how many retrieved contexts are useful for answering the question"
   end
 
   @impl true
@@ -101,10 +63,20 @@ defmodule Jido.Eval.Metrics.ContextPrecision do
     Logger.debug("Starting context precision evaluation")
 
     with :ok <- Jido.Eval.Metric.validate_sample(sample, __MODULE__),
-         {:ok, relevance_scores} <- evaluate_context_relevance(sample, config, opts),
-         {:ok, precision_score} <- calculate_precision(relevance_scores) do
+         {:ok, context_results, judge_calls} <- evaluate_context_relevance(sample, config, opts),
+         {:ok, precision_score} <- calculate_precision(Enum.map(context_results, & &1.relevant)) do
       Logger.debug("Context precision evaluation completed with score: #{precision_score}")
-      {:ok, precision_score}
+
+      {:ok,
+       %{
+         score: precision_score,
+         details: %{
+           contexts: context_results,
+           relevant_count: Enum.count(context_results, & &1.relevant),
+           context_count: length(context_results)
+         },
+         judge_calls: judge_calls
+       }}
     else
       {:error, reason} ->
         Logger.warning("Context precision evaluation failed: #{inspect(reason)}")
@@ -117,44 +89,24 @@ defmodule Jido.Eval.Metrics.ContextPrecision do
     {:error, {:invalid_sample_type, sample_type}}
   end
 
-  # Private functions
+  defp evaluate_context_relevance(%SingleTurn{retrieved_contexts: []}, _config, _opts),
+    do: {:ok, [], []}
 
   defp evaluate_context_relevance(sample, config, opts) do
-    contexts = sample.retrieved_contexts
-
-    if Enum.empty?(contexts) do
-      Logger.debug("No contexts provided, returning precision score of 0.0")
-      {:ok, []}
-    else
-      # Evaluate each context for relevance
-      results =
-        contexts
-        |> Enum.with_index()
-        |> Task.async_stream(
-          fn {context, index} ->
-            {index, evaluate_single_context(sample, context, config, opts)}
-          end,
-          timeout: Keyword.get(opts, :timeout, 30_000),
-          max_concurrency: 3
-        )
-        |> Enum.to_list()
-
-      case collect_relevance_results(results) do
-        {:ok, relevance_map} ->
-          # Convert to ordered list by index
-          relevance_scores =
-            0..(length(contexts) - 1)
-            |> Enum.map(fn index -> Map.get(relevance_map, index, false) end)
-
-          {:ok, relevance_scores}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
+    sample.retrieved_contexts
+    |> Enum.with_index()
+    |> Task.async_stream(
+      fn {context, index} ->
+        evaluate_single_context(sample, context, index, config, opts)
+      end,
+      timeout: Keyword.get(opts, :timeout, 30_000),
+      max_concurrency: 3
+    )
+    |> Enum.to_list()
+    |> collect_relevance_results()
   end
 
-  defp evaluate_single_context(sample, context, config, opts) do
+  defp evaluate_single_context(sample, context, index, config, opts) do
     prompt =
       Utils.build_prompt(@relevance_check_prompt, %{
         user_input: sample.user_input,
@@ -162,20 +114,23 @@ defmodule Jido.Eval.Metrics.ContextPrecision do
         context: context
       })
 
-    case Utils.execute_llm_metric("Context Precision", config.model_spec, prompt, opts) do
-      {:ok, llm_response} ->
-        case Utils.parse_boolean(llm_response) do
-          {:ok, is_relevant} ->
-            {:ok, is_relevant}
+    case Utils.execute_llm_object_metric(
+           "Context Precision",
+           Config.effective_judge_model(config),
+           prompt,
+           @relevance_schema,
+           opts
+         ) do
+      {:ok, {object, call}} ->
+        object = object || %{}
 
-          {:error, _} ->
-            # Fallback: if we can't parse, assume not relevant
-            Logger.debug(
-              "Could not parse context relevance response, assuming not relevant: #{llm_response}"
-            )
-
-            {:ok, false}
-        end
+        {:ok,
+         %{
+           index: index,
+           context: context,
+           relevant: Map.get(object, :relevant, false),
+           reasoning: Map.get(object, :reasoning, "")
+         }, call}
 
       {:error, reason} ->
         {:error, reason}
@@ -185,59 +140,56 @@ defmodule Jido.Eval.Metrics.ContextPrecision do
   defp collect_relevance_results(results) do
     case Enum.find(results, fn
            {:exit, _} -> true
-           {:ok, {_index, {:error, _}}} -> true
+           {:ok, {:error, _}} -> true
            _ -> false
          end) do
       nil ->
-        relevance_map =
+        context_results =
           results
-          |> Enum.into(%{}, fn {:ok, {index, {:ok, is_relevant}}} ->
-            {index, is_relevant}
-          end)
+          |> Enum.map(fn {:ok, {:ok, context_result, _call}} -> context_result end)
+          |> Enum.sort_by(& &1.index)
 
-        {:ok, relevance_map}
+        calls =
+          Enum.map(results, fn {:ok, {:ok, _context_result, call}} -> call end)
+
+        {:ok, context_results, calls}
 
       {:exit, reason} ->
         {:error, {:timeout, reason}}
 
-      {:ok, {_index, {:error, reason}}} ->
+      {:ok, {:error, reason}} ->
         {:error, reason}
     end
   end
 
+  defp calculate_precision([]), do: {:ok, 0.0}
+
   defp calculate_precision(relevance_scores) do
-    if Enum.empty?(relevance_scores) do
-      {:ok, 0.0}
-    else
-      # Calculate precision at each position
-      precisions =
-        relevance_scores
-        |> Enum.with_index(1)
-        |> Enum.map(fn {is_relevant, position} ->
-          if is_relevant do
-            # Count relevant contexts up to this position
-            relevant_count =
-              relevance_scores
-              |> Enum.take(position)
-              |> Enum.count(& &1)
+    precisions =
+      relevance_scores
+      |> Enum.with_index(1)
+      |> Enum.map(fn {is_relevant, position} ->
+        if is_relevant do
+          relevant_count =
+            relevance_scores
+            |> Enum.take(position)
+            |> Enum.count(& &1)
 
-            relevant_count / position
-          else
-            0.0
-          end
-        end)
-
-      # Return average precision (only consider positions where contexts are relevant)
-      relevant_precisions = Enum.filter(precisions, fn p -> p > 0.0 end)
-
-      average_precision =
-        if Enum.empty?(relevant_precisions) do
-          0.0
+          relevant_count / position
         else
-          Enum.sum(relevant_precisions) / length(relevant_precisions)
+          0.0
         end
+      end)
 
-      {:ok, average_precision}
-    end
+    relevant_precisions = Enum.filter(precisions, &(&1 > 0.0))
+
+    average_precision =
+      if relevant_precisions == [] do
+        0.0
+      else
+        Enum.sum(relevant_precisions) / length(relevant_precisions)
+      end
+
+    {:ok, average_precision}
   end
 end

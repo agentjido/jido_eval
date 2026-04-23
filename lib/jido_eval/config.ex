@@ -21,12 +21,17 @@ defmodule Jido.Eval.Config do
 
   use TypedStruct
 
+  @default_judge_model "openai:gpt-4o"
+
   typedstruct do
     @typedoc "Runtime configuration for Jido Eval"
 
     field(:run_id, String.t() | nil, default: nil)
     field(:run_config, Jido.Eval.RunConfig.t(), default: %Jido.Eval.RunConfig{})
-    field(:model_spec, String.t(), default: "openai:gpt-4o")
+    field(:judge_model, String.t() | LLMDB.Model.t(), default: @default_judge_model)
+    field(:judge_opts, keyword(), default: [])
+    # Deprecated compatibility fields. Use :judge_model and :judge_opts for new code.
+    field(:model_spec, String.t() | LLMDB.Model.t(), default: "openai:gpt-4o")
     field(:reporters, [{module(), keyword()}], default: [{Jido.Eval.Reporter.Console, []}])
     field(:stores, [{module(), keyword()}], default: [])
 
@@ -36,8 +41,61 @@ defmodule Jido.Eval.Config do
 
     field(:processors, [{module(), :pre | :post, keyword()}], default: [])
     field(:middleware, [module()], default: [Jido.Eval.Middleware.Tracing])
+    # Deprecated compatibility field. Use :judge_opts for new code.
+    field(:llm_opts, keyword(), default: [])
     field(:tags, %{String.t() => String.t()}, default: %{})
     field(:notes, String.t(), default: "")
+  end
+
+  @doc """
+  Returns the effective judge model, honoring legacy `model_spec` configs.
+  """
+  @spec effective_judge_model(t()) :: String.t() | LLMDB.Model.t()
+  def effective_judge_model(%__MODULE__{} = config) do
+    cond do
+      not is_nil(config.judge_model) and config.judge_model != @default_judge_model ->
+        config.judge_model
+
+      not is_nil(config.model_spec) and config.model_spec != @default_judge_model ->
+        config.model_spec
+
+      not is_nil(config.judge_model) ->
+        config.judge_model
+
+      not is_nil(config.model_spec) ->
+        config.model_spec
+
+      true ->
+        @default_judge_model
+    end
+  end
+
+  @doc """
+  Returns the effective judge options, honoring legacy `llm_opts` configs.
+  """
+  @spec effective_judge_opts(t()) :: keyword()
+  def effective_judge_opts(%__MODULE__{} = config) do
+    case config.judge_opts do
+      opts when is_list(opts) and opts != [] -> opts
+      _ -> config.llm_opts || []
+    end
+  end
+
+  @doc """
+  Normalizes compatibility fields so old and new config names stay in sync.
+  """
+  @spec normalize(t()) :: t()
+  def normalize(%__MODULE__{} = config) do
+    judge_model = effective_judge_model(config)
+    judge_opts = effective_judge_opts(config)
+
+    %{
+      config
+      | judge_model: judge_model,
+        model_spec: judge_model,
+        judge_opts: judge_opts,
+        llm_opts: judge_opts
+    }
   end
 
   @doc """
@@ -57,12 +115,14 @@ defmodule Jido.Eval.Config do
   """
   @spec ensure_run_id(t()) :: {:ok, t()}
   def ensure_run_id(%__MODULE__{run_id: nil} = config) do
+    config = normalize(config)
     run_id = generate_uuid()
     run_config = %{config.run_config | run_id: run_id}
     {:ok, %{config | run_id: run_id, run_config: run_config}}
   end
 
   def ensure_run_id(%__MODULE__{run_id: run_id} = config) when is_binary(run_id) do
+    config = normalize(config)
     run_config = %{config.run_config | run_id: run_id}
     {:ok, %{config | run_config: run_config}}
   end
