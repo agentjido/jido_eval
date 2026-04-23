@@ -38,8 +38,8 @@ defmodule Jido.Eval.LLM do
   alias Jido.Eval.RetryPolicy
   alias Jido.AI.Error
 
-  @type model_spec :: Jido.AI.Model.t() | {atom(), keyword()} | String.t()
-  @type prompt :: String.t() | [Jido.AI.Message.t()]
+  @type model_spec :: map() | {atom(), keyword()} | String.t()
+  @type prompt :: String.t() | [map()]
   @type cache_key :: String.t()
 
   @default_retry_policy %RetryPolicy{}
@@ -82,7 +82,7 @@ defmodule Jido.Eval.LLM do
   def generate_text(model_spec, prompt, opts \\ []) do
     {retry_policy, cache_opts, ai_opts} = extract_options(opts)
 
-    operation = fn -> Jido.AI.generate_text(model_spec, prompt, ai_opts) end
+    operation = fn -> Jido.AI.ask(prompt, Keyword.put(ai_opts, :model, model_spec)) end
     cache_key = build_cache_key(model_spec, prompt, ai_opts)
 
     with_cache_and_retry(operation, cache_key, cache_opts, retry_policy)
@@ -122,7 +122,13 @@ defmodule Jido.Eval.LLM do
   def generate_object(model_spec, prompt, schema, opts \\ []) do
     {retry_policy, cache_opts, ai_opts} = extract_options(opts)
 
-    operation = fn -> Jido.AI.generate_object(model_spec, prompt, schema, ai_opts) end
+    operation = fn ->
+      with {:ok, result} <-
+             Jido.AI.generate_object(prompt, schema, Keyword.put(ai_opts, :model, model_spec)) do
+        {:ok, extract_object(result)}
+      end
+    end
+
     cache_key = build_cache_key(model_spec, {prompt, schema}, ai_opts)
 
     with_cache_and_retry(operation, cache_key, cache_opts, retry_policy)
@@ -215,8 +221,8 @@ defmodule Jido.Eval.LLM do
   defp classify_error(%Error.API.Request{status: 429}), do: :rate_limit
   defp classify_error(%Error.API.Request{status: status}) when status >= 500, do: :server_error
 
-  defp classify_error(%Error.API.Request{reason: reason}) when is_atom(reason) do
-    case reason do
+  defp classify_error(%Error.API.Request{kind: kind}) when is_atom(kind) do
+    case kind do
       :timeout -> :timeout
       :connect_timeout -> :timeout
       :checkout_timeout -> :timeout
@@ -243,10 +249,14 @@ defmodule Jido.Eval.LLM do
     # Ensure all errors follow a consistent format
     case error do
       %Error.API.Request{} = api_error -> api_error
-      %{__exception__: true} = exception -> Error.Unknown.Unknown.exception(error: exception)
-      other -> Error.Unknown.Unknown.exception(error: other)
+      %{__exception__: true} = exception -> Error.Unknown.exception(error: exception)
+      other -> Error.Unknown.exception(error: other)
     end
   end
+
+  defp extract_object(%{object: object}) when is_map(object), do: object
+  defp extract_object(%{"object" => object}) when is_map(object), do: object
+  defp extract_object(object), do: object
 
   # ===========================================================================
   # Caching Implementation
@@ -277,7 +287,8 @@ defmodule Jido.Eval.LLM do
   defp normalize_model_spec({provider, opts}) when is_atom(provider),
     do: {provider, Enum.sort(opts)}
 
-  defp normalize_model_spec(%Jido.AI.Model{} = model), do: Map.take(model, [:provider, :model])
+  defp normalize_model_spec(model) when is_map(model),
+    do: Map.take(model, [:provider, :model, :id])
 
   defp get_cached(cache_key) do
     ensure_cache_table()

@@ -33,13 +33,13 @@ defmodule Jido.Eval.Sample.MultiTurn do
   """
   use TypedStruct
 
-  alias Jido.AI.Message
+  @type message :: %{role: atom() | String.t(), content: term()}
 
   typedstruct do
     @typedoc "A multi-turn evaluation sample"
 
     field(:id, String.t() | nil, default: nil)
-    field(:conversation, [Message.t()], default: [])
+    field(:conversation, [message()], default: [])
     field(:retrieved_contexts, [String.t()] | nil, default: nil)
     field(:reference_contexts, [String.t()] | nil, default: nil)
     field(:reference, String.t() | nil, default: nil)
@@ -107,8 +107,8 @@ defmodule Jido.Eval.Sample.MultiTurn do
       1
 
   """
-  @spec add_message(t(), Message.t()) :: t()
-  def add_message(%__MODULE__{} = sample, %Message{} = message) do
+  @spec add_message(t(), message()) :: t()
+  def add_message(%__MODULE__{} = sample, %{role: _role, content: _content} = message) do
     %{sample | conversation: sample.conversation ++ [message]}
   end
 
@@ -124,9 +124,9 @@ defmodule Jido.Eval.Sample.MultiTurn do
       "Hello"
 
   """
-  @spec add_message(t(), String.t(), Message.role()) :: t()
+  @spec add_message(t(), String.t(), atom() | String.t()) :: t()
   def add_message(%__MODULE__{} = sample, content, role) when is_binary(content) do
-    message = %Message{role: role, content: content}
+    message = %{role: role, content: content}
     add_message(sample, message)
   end
 
@@ -147,7 +147,7 @@ defmodule Jido.Eval.Sample.MultiTurn do
       "Hi!"
 
   """
-  @spec last_message(t()) :: Message.t() | nil
+  @spec last_message(t()) :: message() | nil
   def last_message(%__MODULE__{conversation: []}), do: nil
   def last_message(%__MODULE__{conversation: conversation}), do: List.last(conversation)
 
@@ -169,7 +169,7 @@ defmodule Jido.Eval.Sample.MultiTurn do
       2
 
   """
-  @spec messages_by_role(t(), Message.role()) :: [Message.t()]
+  @spec messages_by_role(t(), atom() | String.t()) :: [message()]
   def messages_by_role(%__MODULE__{} = sample, role) do
     Enum.filter(sample.conversation, &(&1.role == role))
   end
@@ -221,14 +221,13 @@ defmodule Jido.Eval.Sample.MultiTurn do
   # Private helper functions
 
   defp all_valid_messages?(messages) do
-    Enum.all?(messages, &match?(%Message{}, &1))
+    Enum.all?(messages, &match?(%{role: _role, content: _content}, &1))
   end
 
   defp convert_conversation_to_maps(map) do
     case Map.get(map, :conversation) do
       messages when is_list(messages) ->
-        converted_messages = Enum.map(messages, &Map.from_struct/1)
-        Map.put(map, :conversation, converted_messages)
+        Map.put(map, :conversation, messages)
 
       other ->
         Map.put(map, :conversation, other)
@@ -240,7 +239,7 @@ defmodule Jido.Eval.Sample.MultiTurn do
       messages when is_list(messages) ->
         converted_messages =
           Enum.map(messages, fn
-            %Message{} = message ->
+            %{role: _role, content: _content} = message ->
               message
 
             message_map when is_map(message_map) ->
@@ -262,7 +261,7 @@ defmodule Jido.Eval.Sample.MultiTurn do
                     {key, value}
                 end)
 
-              struct(Message, converted_map)
+              converted_map
 
             other ->
               other

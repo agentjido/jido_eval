@@ -32,16 +32,16 @@ defmodule Jido.Eval.Sample.SingleTurn do
   """
   use TypedStruct
 
-  alias Jido.AI.Message
+  @type message :: %{role: atom() | String.t(), content: term()}
 
   typedstruct do
     @typedoc "A single-turn evaluation sample"
 
     field(:id, String.t() | nil, default: nil)
-    field(:user_input, Message.t() | String.t() | nil, default: nil)
+    field(:user_input, message() | String.t() | nil, default: nil)
     field(:retrieved_contexts, [String.t()] | nil, default: nil)
     field(:reference_contexts, [String.t()] | nil, default: nil)
-    field(:response, Message.t() | String.t() | nil, default: nil)
+    field(:response, message() | String.t() | nil, default: nil)
     field(:multi_responses, [String.t()] | nil, default: nil)
     field(:reference, String.t() | nil, default: nil)
     field(:rubrics, %{String.t() => String.t()} | nil, default: nil)
@@ -166,14 +166,17 @@ defmodule Jido.Eval.Sample.SingleTurn do
   defp has_user_input_or_response?(%__MODULE__{}), do: true
 
   defp string_to_message(nil, _role), do: nil
-  defp string_to_message(%Message{} = message, _role), do: message
+
+  defp string_to_message(%{role: _message_role, content: _content} = message, _target_role),
+    do: message
 
   defp string_to_message(content, role) when is_binary(content) do
-    %Message{role: role, content: content}
+    %{role: role, content: content}
   end
 
   defp message_to_string(nil), do: nil
-  defp message_to_string(%Message{content: content}), do: content
+  defp message_to_string(%{content: content}), do: content
+  defp message_to_string(%{"content" => content}), do: content
   defp message_to_string(content) when is_binary(content), do: content
 
   defp convert_messages_to_maps(map) do
@@ -184,7 +187,8 @@ defmodule Jido.Eval.Sample.SingleTurn do
 
   defp convert_field_to_map(map, field) do
     case Map.get(map, field) do
-      %Message{} = message -> Map.put(map, field, Map.from_struct(message))
+      %{role: _role, content: _content} = message -> Map.put(map, field, message)
+      %{"role" => _role, "content" => _content} = message -> Map.put(map, field, message)
       # Leave the map unchanged if not a Message
       _other -> map
     end
@@ -217,8 +221,7 @@ defmodule Jido.Eval.Sample.SingleTurn do
               {key, value}
           end)
 
-        message = struct(Message, converted_map)
-        Map.put(map, field, message)
+        Map.put(map, field, converted_map)
 
       content when is_binary(content) ->
         # Don't auto-convert strings to messages during deserialization
