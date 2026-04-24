@@ -16,17 +16,29 @@ defmodule Jido.Eval.Dataset.InMemory do
       2
 
   """
-  use TypedStruct
-
   alias Jido.Eval.Dataset
   alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
 
-  typedstruct do
-    @typedoc "An in-memory dataset"
+  @sample_type_schema Zoi.union([Zoi.literal(:single_turn), Zoi.literal(:multi_turn)])
 
-    field(:samples, [SingleTurn.t() | MultiTurn.t()], default: [])
-    field(:sample_type, :single_turn | :multi_turn, default: :single_turn)
-  end
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              samples: Zoi.list(Zoi.any()) |> Zoi.default([]),
+              sample_type: @sample_type_schema |> Zoi.default(:single_turn)
+            },
+            coerce: true
+          )
+
+  @typedoc "An in-memory dataset"
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc false
+  @spec schema() :: Zoi.schema()
+  def schema, do: @schema
 
   @doc """
   Creates a new in-memory dataset from a list of samples.
@@ -41,7 +53,9 @@ defmodule Jido.Eval.Dataset.InMemory do
       :single_turn
 
   """
-  @spec new([SingleTurn.t() | MultiTurn.t()]) :: {:ok, t()} | {:error, String.t()}
+  @spec new(map() | [SingleTurn.t() | MultiTurn.t()]) :: {:ok, t()} | {:error, term()}
+  def new(attrs) when is_map(attrs), do: Zoi.parse(@schema, attrs)
+
   def new(samples) when is_list(samples) do
     case detect_sample_type(samples) do
       {:ok, sample_type} ->
@@ -54,6 +68,17 @@ defmodule Jido.Eval.Dataset.InMemory do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Creates an in-memory dataset from map attrs or raises on validation errors.
+  """
+  @spec new!(map()) :: t()
+  def new!(attrs) when is_map(attrs) do
+    case new(attrs) do
+      {:ok, dataset} -> dataset
+      {:error, reason} -> raise ArgumentError, "Invalid #{inspect(__MODULE__)}: #{inspect(reason)}"
     end
   end
 

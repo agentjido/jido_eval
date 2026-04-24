@@ -95,6 +95,19 @@ defmodule Jido.EvalTest do
       end
     end
 
+    test "evaluation accepts keyword run config overrides" do
+      dataset = sample_dataset()
+
+      {:ok, result} =
+        Eval.evaluate(dataset,
+          metrics: [:faithfulness],
+          run_config: [max_workers: 2, timeout: 25_000]
+        )
+
+      assert result.config.run_config.max_workers == 2
+      assert result.config.run_config.timeout == 25_000
+    end
+
     test "evaluation with tags" do
       dataset = sample_dataset()
 
@@ -145,6 +158,16 @@ defmodule Jido.EvalTest do
   end
 
   describe "evaluate/2 asynchronous" do
+    test "evaluate_async/2 starts asynchronous evaluation" do
+      dataset = sample_dataset()
+
+      {:ok, run_id} = Eval.evaluate_async(dataset, metrics: [:faithfulness])
+
+      assert is_binary(run_id)
+      {:ok, result} = Eval.await_result(run_id, 15_000)
+      assert result.run_id == run_id
+    end
+
     test "basic asynchronous evaluation" do
       dataset = sample_dataset()
 

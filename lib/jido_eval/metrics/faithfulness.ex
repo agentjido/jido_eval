@@ -180,8 +180,6 @@ defmodule Jido.Eval.Metrics.Faithfulness do
            opts
          ) do
       {:ok, {object, call}} ->
-        object = object || %{}
-
         {:ok,
          %{
            text: statement,

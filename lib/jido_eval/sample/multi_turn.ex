@@ -30,21 +30,31 @@ defmodule Jido.Eval.Sample.MultiTurn do
       3
 
   """
-  use TypedStruct
-
   @type message :: %{role: atom() | String.t(), content: term()}
 
-  typedstruct do
-    @typedoc "A multi-turn evaluation sample"
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              id: Zoi.string() |> Zoi.nullable() |> Zoi.default(nil),
+              conversation: Zoi.list(Zoi.any()) |> Zoi.default([]),
+              retrieved_contexts: Zoi.list(Zoi.string()) |> Zoi.nullable() |> Zoi.default(nil),
+              reference_contexts: Zoi.list(Zoi.string()) |> Zoi.nullable() |> Zoi.default(nil),
+              reference: Zoi.string() |> Zoi.nullable() |> Zoi.default(nil),
+              rubrics: Zoi.map(Zoi.string(), Zoi.string()) |> Zoi.nullable() |> Zoi.default(nil),
+              tags: Zoi.map(Zoi.string(), Zoi.string()) |> Zoi.default(%{})
+            },
+            coerce: true
+          )
 
-    field(:id, String.t() | nil, default: nil)
-    field(:conversation, [message()], default: [])
-    field(:retrieved_contexts, [String.t()] | nil, default: nil)
-    field(:reference_contexts, [String.t()] | nil, default: nil)
-    field(:reference, String.t() | nil, default: nil)
-    field(:rubrics, %{String.t() => String.t()} | nil, default: nil)
-    field(:tags, %{String.t() => String.t()}, default: %{})
-  end
+  @typedoc "A multi-turn evaluation sample"
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc false
+  @spec schema() :: Zoi.schema()
+  def schema, do: @schema
 
   @doc """
   Creates a new multi-turn sample with validation.
@@ -60,13 +70,31 @@ defmodule Jido.Eval.Sample.MultiTurn do
       1
 
   """
-  @spec new(map()) :: {:ok, t()} | {:error, String.t()}
+  @spec new(map()) :: {:ok, t()} | {:error, term()}
   def new(attrs) when is_map(attrs) do
-    sample = struct(__MODULE__, attrs)
+    case Zoi.parse(@schema, attrs) do
+      {:ok, sample} ->
+        case validate(sample) do
+          :ok -> {:ok, sample}
+          {:error, reason} -> {:error, reason}
+        end
 
-    case validate(sample) do
-      :ok -> {:ok, sample}
-      {:error, reason} -> {:error, reason}
+      {:error, [%Zoi.Error{path: [:conversation], code: :invalid_type} | _]} ->
+        {:error, "Conversation must be a list"}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Creates a multi-turn sample or raises on validation errors.
+  """
+  @spec new!(map()) :: t()
+  def new!(attrs) when is_map(attrs) do
+    case new(attrs) do
+      {:ok, sample} -> sample
+      {:error, reason} -> raise ArgumentError, "Invalid #{inspect(__MODULE__)}: #{inspect(reason)}"
     end
   end
 
@@ -202,7 +230,7 @@ defmodule Jido.Eval.Sample.MultiTurn do
   @doc """
   Creates a sample from a map, with type conversion.
   """
-  @spec from_map(map()) :: {:ok, t()} | {:error, String.t()}
+  @spec from_map(map()) :: {:ok, t()} | {:error, term()}
   def from_map(map) when is_map(map) do
     converted_map =
       map

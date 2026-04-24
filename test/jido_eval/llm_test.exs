@@ -202,9 +202,7 @@ defmodule Jido.Eval.LLMTest do
       policy = %RetryPolicy{max_retries: 2, base_delay: 10, jitter: false}
 
       assert {:ok, %{score: 0.9}} =
-               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema,
-                 retry_policy: policy
-               )
+               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema, retry_policy: policy)
     end
 
     test "validates schema after successful retry", %{test_name: test_name} do
@@ -217,9 +215,7 @@ defmodule Jido.Eval.LLMTest do
       policy = %RetryPolicy{max_retries: 2, base_delay: 10, jitter: false}
 
       assert {:ok, %{score: 0.85}} =
-               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema,
-                 retry_policy: policy
-               )
+               LLM.generate_object("openai:gpt-3.5-turbo", "Rate this", schema, retry_policy: policy)
     end
   end
 
@@ -227,11 +223,7 @@ defmodule Jido.Eval.LLMTest do
     test "resolves string specs with LLMDB.model/1 and passes the model to stubs" do
       parent = self()
 
-      Application.put_env(:jido_eval, :llm_stub, fn :text,
-                                                    %LLMDB.Model{} = model,
-                                                    prompt,
-                                                    _schema,
-                                                    _opts ->
+      Application.put_env(:jido_eval, :llm_stub, fn :text, %LLMDB.Model{} = model, prompt, _schema, _opts ->
         send(parent, {:judge_model, LLMDB.Model.spec(model), prompt})
         {:ok, "stubbed response"}
       end)
@@ -302,6 +294,42 @@ defmodule Jido.Eval.LLMTest do
       assert %ReqLLM.Response{} = call.raw_response
       assert call.model_spec == "openai:gpt-3.5-turbo"
       assert call.cache_hit == false
+    end
+
+    test "extracts text from stubbed response shapes" do
+      Application.put_env(:jido_eval, :llm_stub, fn :text, _model, _prompt, _opts ->
+        {:ok,
+         %{
+           message: %{
+             content: [
+               %{type: :text, text: "A"},
+               %{"type" => "text", "text" => "B"},
+               %{text: "C"},
+               %{"text" => "D"},
+               "E",
+               %{type: :image, text: "F"}
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, "ABCDEF"} = LLM.generate_text("openai:gpt-3.5-turbo", "Test")
+
+      Application.put_env(:jido_eval, :llm_stub, fn _model, _prompt, _opts ->
+        {:ok, %{"choices" => [%{"message" => %{"content" => "Choice text"}}]}}
+      end)
+
+      assert {:ok, "Choice text"} = LLM.generate_text("openai:gpt-3.5-turbo", "Test")
+    end
+
+    test "normalizes non-tuple stub values into judge calls" do
+      Application.put_env(:jido_eval, :llm_stub, fn :object, _model, _prompt, _schema, _opts ->
+        %{"score" => 0.7, "nested" => %{"ok" => true}}
+      end)
+
+      assert {:ok, call} = LLM.object("openai:gpt-3.5-turbo", "Rate this", %{})
+      assert call.object == %{score: 0.7, nested: %{ok: true}}
+      assert call.text == ""
     end
   end
 
@@ -447,6 +475,35 @@ defmodule Jido.Eval.LLMTest do
       assert {:error, error} = LLM.generate_text("openai:gpt-3.5-turbo", "Test")
       # Just check it's some kind of error
       assert match?(%Error.API.Request{}, error) or match?(%Error.Unknown{}, error)
+    end
+
+    test "normalizes raised exceptions from judge calls" do
+      Application.put_env(:jido_eval, :llm_stub, fn :text, _model, _prompt, _schema, _opts ->
+        raise "boom"
+      end)
+
+      assert {:error, %Error.Unknown.Unknown{}} =
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test")
+    end
+
+    test "retries thrown timeout exits from judge calls" do
+      {:ok, agent} = Agent.start_link(fn -> 0 end)
+
+      Application.put_env(:jido_eval, :llm_stub, fn :text, _model, _prompt, _schema, _opts ->
+        Agent.get_and_update(agent, fn
+          0 -> {0, 1}
+          count -> {count, count + 1}
+        end)
+        |> case do
+          0 -> throw(:timeout)
+          _ -> {:ok, "after timeout"}
+        end
+      end)
+
+      policy = %RetryPolicy{max_retries: 1, base_delay: 1, jitter: false, retryable_errors: [:timeout]}
+
+      assert {:ok, "after timeout"} =
+               LLM.generate_text("openai:gpt-3.5-turbo", "Test", retry_policy: policy)
     end
   end
 

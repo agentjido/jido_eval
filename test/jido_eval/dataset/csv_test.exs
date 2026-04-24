@@ -23,6 +23,27 @@ defmodule Jido.Eval.Dataset.CSVTest do
   end
 
   describe "new/1" do
+    test "validates map attributes with Zoi" do
+      assert {:ok, dataset} =
+               CSV.new(%{
+                 "file_path" => @csv_file,
+                 "headers" => ["id", "user_input"],
+                 "separator" => ",",
+                 "encoding" => :utf8
+               })
+
+      assert dataset.file_path == @csv_file
+      assert dataset.headers == ["id", "user_input"]
+      assert CSV.new!(%{file_path: @csv_file, headers: [], separator: ",", encoding: :latin1}).encoding == :latin1
+      assert CSV.schema()
+    end
+
+    test "new!/1 raises for invalid map attributes" do
+      assert_raise ArgumentError, fn ->
+        CSV.new!(%{encoding: :utf16})
+      end
+    end
+
     test "creates dataset from existing CSV file" do
       assert {:ok, dataset} = CSV.new(@csv_file)
       assert dataset.file_path == @csv_file
@@ -57,6 +78,13 @@ defmodule Jido.Eval.Dataset.CSVTest do
 
       # Should still work, just with limited functionality
       assert {:ok, _dataset} = CSV.new(malformed_file)
+    end
+
+    test "rejects empty CSV files", %{temp_dir: temp_dir} do
+      empty_file = Path.join(temp_dir, "empty.csv")
+      File.write!(empty_file, "")
+
+      assert {:error, "Empty CSV file"} = CSV.new(empty_file)
     end
   end
 
@@ -220,6 +248,42 @@ defmodule Jido.Eval.Dataset.CSVTest do
   end
 
   describe "CSV format handling" do
+    test "split_list handles quoted semicolons, escaped quotes, and non-strings" do
+      assert CSV.split_list("\"value;with;semicolons\";\"say \"\"hi\"\"\";value2") == [
+               "value;with;semicolons",
+               "say \"hi\"",
+               "value2"
+             ]
+
+      assert CSV.split_list(nil) == []
+    end
+
+    test "has_meaningful_data?/1 rejects empty values and accepts populated maps" do
+      refute CSV.has_meaningful_data?(%{
+               user_input: "",
+               response: nil,
+               retrieved_contexts: [],
+               tags: %{}
+             })
+
+      assert CSV.has_meaningful_data?(%{tags: %{"category" => "qa"}})
+    end
+
+    test "parse_csv_stream_safe falls back to manual parsing for malformed rows" do
+      rows =
+        ["a,b\n", "\"unterminated,b\n"]
+        |> CSV.parse_csv_stream_safe()
+        |> Enum.to_list()
+
+      assert ["a", "b"] in rows
+      assert ["\"unterminated", "b"] in rows
+    end
+
+    test "row_to_sample reports conversion errors" do
+      assert {:error, reason} = CSV.row_to_sample(["value"], [:not_a_string])
+      assert String.contains?(reason, "Failed to convert row to sample")
+    end
+
     test "handles quoted fields with special characters", %{temp_dir: temp_dir} do
       special_csv = """
       id,user_input,response

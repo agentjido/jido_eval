@@ -24,6 +24,26 @@ defmodule Jido.Eval.Dataset.JSONLTest do
   end
 
   describe "new/2" do
+    test "validates map attributes with Zoi" do
+      assert {:ok, dataset} =
+               JSONL.new(%{
+                 "file_path" => @single_turn_file,
+                 "sample_type" => :single_turn,
+                 "encoding" => :utf8
+               })
+
+      assert dataset.file_path == @single_turn_file
+      assert dataset.sample_type == :single_turn
+      assert JSONL.new!(%{file_path: @multi_turn_file, sample_type: :multi_turn}).sample_type == :multi_turn
+      assert JSONL.schema()
+    end
+
+    test "new!/1 raises for invalid map attributes" do
+      assert_raise ArgumentError, fn ->
+        JSONL.new!(%{sample_type: :unsupported})
+      end
+    end
+
     test "creates dataset from existing single-turn file" do
       assert {:ok, dataset} = JSONL.new(@single_turn_file, :single_turn)
       assert dataset.file_path == @single_turn_file
@@ -75,6 +95,14 @@ defmodule Jido.Eval.Dataset.JSONLTest do
 
       assert {:error, reason} = JSONL.auto_detect(empty_file)
       assert String.contains?(reason, "No valid JSON")
+    end
+
+    test "rejects unknown sample structure", %{temp_dir: temp_dir} do
+      unknown_file = Path.join(temp_dir, "unknown.jsonl")
+      File.write!(unknown_file, Jason.encode!(%{other: true}) <> "\n")
+
+      assert {:error, reason} = JSONL.auto_detect(unknown_file)
+      assert String.contains?(reason, "Cannot determine sample type")
     end
   end
 
@@ -128,6 +156,15 @@ defmodule Jido.Eval.Dataset.JSONLTest do
 
       assert {:error, reason} = JSONL.write(invalid_path, samples)
       assert String.contains?(reason, "Failed to write file")
+    end
+  end
+
+  describe "parse_json_line/2" do
+    test "reports invalid JSON and sample conversion failures" do
+      assert {:error, "Invalid JSON"} = JSONL.parse_json_line("{bad", :single_turn)
+
+      assert {:error, reason} = JSONL.parse_json_line(~s({"conversation":[]}), :multi_turn)
+      assert String.contains?(reason, "Failed to parse line")
     end
   end
 

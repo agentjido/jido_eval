@@ -49,6 +49,28 @@ defmodule Jido.Eval.RunConfigTest do
     end
   end
 
+  describe "new/1 and new!/1" do
+    test "validates maps with coercion" do
+      assert {:ok, config} =
+               RunConfig.new(%{
+                 "timeout" => 60_000,
+                 "max_workers" => 4,
+                 "enable_caching" => true
+               })
+
+      assert config.timeout == 60_000
+      assert config.max_workers == 4
+      assert config.enable_caching == true
+      assert %RunConfig{} = RunConfig.new!()
+    end
+
+    test "raises for invalid maps" do
+      assert_raise ArgumentError, fn ->
+        RunConfig.new!(%{timeout: "slow"})
+      end
+    end
+  end
+
   describe "doctests" do
     doctest RunConfig
   end

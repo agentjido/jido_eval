@@ -49,6 +49,29 @@ defmodule Jido.Eval.ConfigTest do
     end
   end
 
+  describe "new/1 and new!/1" do
+    test "validates and normalizes config maps" do
+      assert {:ok, config} =
+               Config.new(%{
+                 "model_spec" => "openai:gpt-3.5-turbo",
+                 "llm_opts" => [temperature: 0.0],
+                 "tags" => %{"suite" => "golden"}
+               })
+
+      assert config.judge_model == "openai:gpt-3.5-turbo"
+      assert config.model_spec == "openai:gpt-3.5-turbo"
+      assert config.judge_opts == [temperature: 0.0]
+      assert config.llm_opts == [temperature: 0.0]
+      assert config.tags == %{"suite" => "golden"}
+    end
+
+    test "raises for invalid config maps" do
+      assert_raise ArgumentError, fn ->
+        Config.new!(%{run_id: 123})
+      end
+    end
+  end
+
   describe "judge compatibility fields" do
     test "legacy model_spec is accepted as the effective judge model" do
       config = %Config{model_spec: "openai:gpt-3.5-turbo"}
@@ -92,6 +115,13 @@ defmodule Jido.Eval.ConfigTest do
 
       assert config.judge_opts == [api_key: "test-key"]
       assert config.llm_opts == [api_key: "test-key"]
+    end
+
+    test "falls back to defaults when legacy and new fields are nil" do
+      config = %Config{judge_model: nil, model_spec: nil, judge_opts: nil, llm_opts: nil}
+
+      assert Config.effective_judge_model(config) == "openai:gpt-4o"
+      assert Config.effective_judge_opts(config) == []
     end
   end
 

@@ -47,6 +47,14 @@ defmodule Jido.Eval.Sample.SingleTurnTest do
       attrs = %{response: "Hello"}
       assert {:ok, _sample} = SingleTurn.new(attrs)
     end
+
+    test "new!/1 returns samples or raises" do
+      assert %SingleTurn{user_input: "Hello"} = SingleTurn.new!(%{"user_input" => "Hello"})
+
+      assert_raise ArgumentError, fn ->
+        SingleTurn.new!(%{})
+      end
+    end
   end
 
   describe "validate/1" do
@@ -112,6 +120,13 @@ defmodule Jido.Eval.Sample.SingleTurnTest do
       converted = SingleTurn.to_strings(sample)
 
       assert converted.response == "Hi!"
+    end
+
+    test "converts string-keyed messages to strings" do
+      sample = %SingleTurn{user_input: %{"role" => "user", "content" => "Hello"}}
+      converted = SingleTurn.to_strings(sample)
+
+      assert converted.user_input == "Hello"
     end
 
     test "leaves string values unchanged" do
@@ -197,6 +212,23 @@ defmodule Jido.Eval.Sample.SingleTurnTest do
       assert {:ok, sample} = SingleTurn.from_map(map)
       assert %{role: :user, content: "Hello"} = sample.user_input
       assert %{role: :assistant, content: "Hi!"} = sample.response
+    end
+
+    test "from_map converts known string message keys and tolerates unknown top-level keys" do
+      map = %{
+        :user_input => %{
+          :role => "user",
+          :content => "Hello",
+          "name" => "pat",
+          "metadata" => %{"source" => "test"}
+        },
+        "unknown_field" => "kept by fallback"
+      }
+
+      assert {:ok, sample} = SingleTurn.from_map(map)
+      assert sample.user_input.role == "user"
+      assert sample.user_input.name == "pat"
+      assert sample.user_input.metadata == %{"source" => "test"}
     end
 
     test "from_map handles invalid data" do

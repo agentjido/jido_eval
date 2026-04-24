@@ -13,8 +13,7 @@ defmodule JidoEval.Application do
 
     children = [
       # Registry for tracking evaluation runs
-      {Registry,
-       keys: :unique, name: Jido.Eval.Engine.Registry, partitions: System.schedulers_online()},
+      {Registry, keys: :unique, name: Jido.Eval.Engine.Registry, partitions: System.schedulers_online()},
 
       # Task supervisor for evaluation runs
       {Task.Supervisor, name: Jido.Eval.Engine.TaskSupervisor, strategy: :one_for_one}

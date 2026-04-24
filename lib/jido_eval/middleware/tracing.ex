@@ -58,6 +58,11 @@ defmodule Jido.Eval.Middleware.Tracing do
     do_call(context, metric_fn, opts)
   end
 
+  @doc """
+  Wraps metric execution with default tracing options.
+
+  This two-argument form is used by the evaluation worker pipeline.
+  """
   # Implementation for the worker interface (call/2)
   @spec call(context :: any(), metric_fn :: (-> any())) :: any()
   def call(context, metric_fn) when is_function(metric_fn) do
@@ -193,7 +198,7 @@ defmodule Jido.Eval.Middleware.Tracing do
   end
 
   defp format_context(context) when is_map(context) do
-    keys = Map.keys(context) |> Enum.take(3) |> Enum.join(", ")
+    keys = context |> Map.keys() |> Enum.sort() |> Enum.take(3) |> Enum.join(", ")
     "keys=[#{keys}]"
   end
 

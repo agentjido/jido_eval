@@ -19,32 +19,62 @@ defmodule Jido.Eval.Config do
       %{"experiment" => "test_run"}
   """
 
-  use TypedStruct
-
   @default_judge_model "openai:gpt-4o"
 
-  typedstruct do
-    @typedoc "Runtime configuration for Jido Eval"
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              run_id: Zoi.string() |> Zoi.nullable() |> Zoi.default(nil),
+              run_config: Zoi.any() |> Zoi.default(%Jido.Eval.RunConfig{}),
+              judge_model: Zoi.any() |> Zoi.default(@default_judge_model),
+              judge_opts: Zoi.list(Zoi.any()) |> Zoi.default([]),
+              # Deprecated compatibility fields. Use :judge_model and :judge_opts for new code.
+              model_spec: Zoi.any() |> Zoi.default(@default_judge_model),
+              reporters: Zoi.list(Zoi.any()) |> Zoi.default([{Jido.Eval.Reporter.Console, []}]),
+              stores: Zoi.list(Zoi.any()) |> Zoi.default([]),
+              broadcasters:
+                Zoi.list(Zoi.any())
+                |> Zoi.default([{Jido.Eval.Broadcaster.Telemetry, [prefix: [:jido, :eval]]}]),
+              processors: Zoi.list(Zoi.any()) |> Zoi.default([]),
+              middleware: Zoi.list(Zoi.any()) |> Zoi.default([Jido.Eval.Middleware.Tracing]),
+              # Deprecated compatibility field. Use :judge_opts for new code.
+              llm_opts: Zoi.list(Zoi.any()) |> Zoi.default([]),
+              tags: Zoi.map(Zoi.string(), Zoi.string()) |> Zoi.default(%{}),
+              notes: Zoi.string() |> Zoi.default("")
+            },
+            coerce: true
+          )
 
-    field(:run_id, String.t() | nil, default: nil)
-    field(:run_config, Jido.Eval.RunConfig.t(), default: %Jido.Eval.RunConfig{})
-    field(:judge_model, String.t() | LLMDB.Model.t(), default: @default_judge_model)
-    field(:judge_opts, keyword(), default: [])
-    # Deprecated compatibility fields. Use :judge_model and :judge_opts for new code.
-    field(:model_spec, String.t() | LLMDB.Model.t(), default: "openai:gpt-4o")
-    field(:reporters, [{module(), keyword()}], default: [{Jido.Eval.Reporter.Console, []}])
-    field(:stores, [{module(), keyword()}], default: [])
+  @typedoc "Runtime configuration for Jido Eval"
+  @type t :: unquote(Zoi.type_spec(@schema))
 
-    field(:broadcasters, [{module(), keyword()}],
-      default: [{Jido.Eval.Broadcaster.Telemetry, [prefix: [:jido, :eval]]}]
-    )
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
-    field(:processors, [{module(), :pre | :post, keyword()}], default: [])
-    field(:middleware, [module()], default: [Jido.Eval.Middleware.Tracing])
-    # Deprecated compatibility field. Use :judge_opts for new code.
-    field(:llm_opts, keyword(), default: [])
-    field(:tags, %{String.t() => String.t()}, default: %{})
-    field(:notes, String.t(), default: "")
+  @doc false
+  @spec schema() :: Zoi.schema()
+  def schema, do: @schema
+
+  @doc """
+  Builds a runtime configuration from a map, validating with Zoi.
+  """
+  @spec new(map()) :: {:ok, t()} | {:error, term()}
+  def new(attrs \\ %{}) when is_map(attrs) do
+    case Zoi.parse(@schema, attrs) do
+      {:ok, config} -> {:ok, normalize(config)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Builds a runtime configuration from a map or raises on validation errors.
+  """
+  @spec new!(map()) :: t()
+  def new!(attrs \\ %{}) when is_map(attrs) do
+    case new(attrs) do
+      {:ok, config} -> config
+      {:error, reason} -> raise ArgumentError, "Invalid #{inspect(__MODULE__)}: #{inspect(reason)}"
+    end
   end
 
   @doc """

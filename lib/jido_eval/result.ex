@@ -21,39 +21,38 @@ defmodule Jido.Eval.Result do
       0.8
   """
 
-  use TypedStruct
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              run_id: Zoi.string() |> Zoi.nullable() |> Zoi.default(nil),
+              config: Zoi.any() |> Zoi.default(nil),
+              sample_results: Zoi.list(Zoi.any()) |> Zoi.default([]),
+              sample_count: Zoi.integer() |> Zoi.default(0),
+              completed_count: Zoi.integer() |> Zoi.default(0),
+              error_count: Zoi.integer() |> Zoi.default(0),
+              summary_stats: Zoi.map() |> Zoi.default(%{}),
+              pass_rate: Zoi.float() |> Zoi.nullable() |> Zoi.default(nil),
+              latency: Zoi.map() |> Zoi.default(%{}),
+              start_time: Zoi.any() |> Zoi.default(nil),
+              finish_time: Zoi.any() |> Zoi.default(nil),
+              duration_ms: Zoi.integer() |> Zoi.nullable() |> Zoi.default(nil),
+              errors: Zoi.list(Zoi.any()) |> Zoi.default([]),
+              error_categories: Zoi.map(Zoi.string(), Zoi.integer()) |> Zoi.default(%{}),
+              by_tag: Zoi.map() |> Zoi.default(%{}),
+              metadata: Zoi.map() |> Zoi.default(%{})
+            },
+            coerce: true
+          )
 
-  typedstruct do
-    @typedoc "Comprehensive evaluation result with statistics and metadata"
+  @typedoc "Comprehensive evaluation result with statistics and metadata"
+  @type t :: unquote(Zoi.type_spec(@schema))
 
-    # Run identification
-    field(:run_id, String.t())
-    field(:config, Jido.Eval.Config.t() | nil, default: nil)
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
 
-    # Sample-level results
-    field(:sample_results, [sample_result()], default: [])
-    field(:sample_count, non_neg_integer(), default: 0)
-    field(:completed_count, non_neg_integer(), default: 0)
-    field(:error_count, non_neg_integer(), default: 0)
-
-    # Aggregated statistics by metric
-    field(:summary_stats, %{atom() => metric_stats()}, default: %{})
-    field(:pass_rate, float() | nil, default: nil)
-
-    # Performance metrics
-    field(:latency, latency_stats(), default: %{})
-    field(:start_time, DateTime.t() | nil, default: nil)
-    field(:finish_time, DateTime.t() | nil, default: nil)
-    field(:duration_ms, non_neg_integer() | nil, default: nil)
-
-    # Error analysis
-    field(:errors, [evaluation_error()], default: [])
-    field(:error_categories, %{String.t() => non_neg_integer()}, default: %{})
-
-    # Experimental tracking
-    field(:by_tag, %{String.t() => tag_stats()}, default: %{})
-    field(:metadata, %{String.t() => term()}, default: %{})
-  end
+  @doc false
+  @spec schema() :: Zoi.schema()
+  def schema, do: @schema
 
   @typedoc "Per-sample evaluation result"
   @type sample_result :: %{
@@ -125,12 +124,30 @@ defmodule Jido.Eval.Result do
       iex> result.config.tags
       %{"experiment" => "test"}
   """
-  def new(run_id, config \\ nil) do
+  @spec new(map() | String.t(), Jido.Eval.Config.t() | nil) :: {:ok, t()} | {:error, term()} | t()
+  def new(attrs_or_run_id, config \\ nil)
+
+  def new(attrs, nil) when is_map(attrs) do
+    Zoi.parse(@schema, attrs)
+  end
+
+  def new(run_id, config) do
     %__MODULE__{
       run_id: run_id,
       config: config,
       start_time: DateTime.utc_now()
     }
+  end
+
+  @doc """
+  Creates a result from a map or raises on validation errors.
+  """
+  @spec new!(map()) :: t()
+  def new!(attrs) when is_map(attrs) do
+    case new(attrs) do
+      {:ok, result} -> result
+      {:error, reason} -> raise ArgumentError, "Invalid #{inspect(__MODULE__)}: #{inspect(reason)}"
+    end
   end
 
   @doc """

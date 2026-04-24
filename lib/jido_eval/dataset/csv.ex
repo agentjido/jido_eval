@@ -24,27 +24,31 @@ defmodule Jido.Eval.Dataset.CSV do
       :single_turn
 
   """
-  use TypedStruct
-
   alias Jido.Eval.Dataset
   alias Jido.Eval.Sample.SingleTurn
 
-  # Define custom CSV parser with lenient escape handling
-  NimbleCSV.define(JidoCSV,
-    separator: ",",
-    escape: "\"",
-    line_separator: ["\r\n", "\n"],
-    moduledoc: false
-  )
+  @encoding_schema Zoi.union([Zoi.literal(:utf8), Zoi.literal(:latin1)])
 
-  typedstruct do
-    @typedoc "A CSV dataset"
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              file_path: Zoi.string() |> Zoi.default(""),
+              headers: Zoi.list(Zoi.string()) |> Zoi.default([]),
+              separator: Zoi.string() |> Zoi.default(","),
+              encoding: @encoding_schema |> Zoi.default(:utf8)
+            },
+            coerce: true
+          )
 
-    field(:file_path, String.t(), default: "")
-    field(:headers, [String.t()], default: [])
-    field(:separator, String.t(), default: ",")
-    field(:encoding, :utf8 | :latin1, default: :utf8)
-  end
+  @typedoc "A CSV dataset"
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc false
+  @spec schema() :: Zoi.schema()
+  def schema, do: @schema
 
   @doc """
   Creates a new CSV dataset from a file path.
@@ -61,8 +65,12 @@ defmodule Jido.Eval.Dataset.CSV do
       "data.csv"
 
   """
-  @spec new(String.t(), keyword()) :: {:ok, t()} | {:error, String.t()}
-  def new(file_path, opts \\ []) do
+  @spec new(map() | String.t(), keyword()) :: {:ok, t()} | {:error, term()}
+  def new(file_path_or_attrs, opts \\ [])
+
+  def new(attrs, []) when is_map(attrs), do: Zoi.parse(@schema, attrs)
+
+  def new(file_path, opts) when is_binary(file_path) do
     separator = Keyword.get(opts, :separator, ",")
     encoding = Keyword.get(opts, :encoding, :utf8)
 
@@ -83,6 +91,17 @@ defmodule Jido.Eval.Dataset.CSV do
       end
     else
       {:error, "File does not exist: #{file_path}"}
+    end
+  end
+
+  @doc """
+  Creates a CSV dataset from map attrs or raises on validation errors.
+  """
+  @spec new!(map()) :: t()
+  def new!(attrs) when is_map(attrs) do
+    case new(attrs) do
+      {:ok, dataset} -> dataset
+      {:error, reason} -> raise ArgumentError, "Invalid #{inspect(__MODULE__)}: #{inspect(reason)}"
     end
   end
 
@@ -240,7 +259,7 @@ defmodule Jido.Eval.Dataset.CSV do
     |> Stream.map(fn line ->
       try do
         # Try to parse with NimbleCSV first
-        [parsed_row] = JidoCSV.parse_string(line, skip_headers: false)
+        [parsed_row] = NimbleCSV.RFC4180.parse_string(line, skip_headers: false)
         parsed_row
       rescue
         NimbleCSV.ParseError ->

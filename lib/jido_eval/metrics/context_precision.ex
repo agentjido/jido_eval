@@ -122,8 +122,6 @@ defmodule Jido.Eval.Metrics.ContextPrecision do
            opts
          ) do
       {:ok, {object, call}} ->
-        object = object || %{}
-
         {:ok,
          %{
            index: index,

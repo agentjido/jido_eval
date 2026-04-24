@@ -389,8 +389,7 @@ defmodule Jido.Eval.Integration.LiveEvalTest do
             "Here's how to make pasta: boil water, add salt, cook noodles."
           ],
           response: "The answer is 42, according to Douglas Adams.",
-          reference:
-            "The meaning of life is a philosophical question with many different answers.",
+          reference: "The meaning of life is a philosophical question with many different answers.",
           tags: %{"source" => "philosophy_qa"}
         }
       ]

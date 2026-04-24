@@ -16,18 +16,31 @@ defmodule Jido.Eval.Dataset.JSONL do
       :single_turn
 
   """
-  use TypedStruct
-
   alias Jido.Eval.Dataset
   alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
 
-  typedstruct do
-    @typedoc "A JSONL dataset"
+  @sample_type_schema Zoi.union([Zoi.literal(:single_turn), Zoi.literal(:multi_turn)])
+  @encoding_schema Zoi.union([Zoi.literal(:utf8), Zoi.literal(:latin1)])
 
-    field(:file_path, String.t(), default: "")
-    field(:sample_type, :single_turn | :multi_turn, default: :single_turn)
-    field(:encoding, :utf8 | :latin1, default: :utf8)
-  end
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              file_path: Zoi.string() |> Zoi.default(""),
+              sample_type: @sample_type_schema |> Zoi.default(:single_turn),
+              encoding: @encoding_schema |> Zoi.default(:utf8)
+            },
+            coerce: true
+          )
+
+  @typedoc "A JSONL dataset"
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc false
+  @spec schema() :: Zoi.schema()
+  def schema, do: @schema
 
   @doc """
   Creates a new JSONL dataset from a file path.
@@ -58,6 +71,23 @@ defmodule Jido.Eval.Dataset.JSONL do
       {:ok, dataset}
     else
       {:error, "File does not exist: #{file_path}"}
+    end
+  end
+
+  @doc """
+  Creates a JSONL dataset from map attrs, validating with Zoi.
+  """
+  @spec new(map()) :: {:ok, t()} | {:error, term()}
+  def new(attrs) when is_map(attrs), do: Zoi.parse(@schema, attrs)
+
+  @doc """
+  Creates a JSONL dataset from map attrs or raises on validation errors.
+  """
+  @spec new!(map()) :: t()
+  def new!(attrs) when is_map(attrs) do
+    case new(attrs) do
+      {:ok, dataset} -> dataset
+      {:error, reason} -> raise ArgumentError, "Invalid #{inspect(__MODULE__)}: #{inspect(reason)}"
     end
   end
 

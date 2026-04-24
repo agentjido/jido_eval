@@ -9,6 +9,20 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
   doctest InMemory
 
   describe "new/1" do
+    test "validates map attributes with Zoi" do
+      samples = [%SingleTurn{id: "test", user_input: "Hello"}]
+
+      assert {:ok, dataset} =
+               InMemory.new(%{
+                 "samples" => samples,
+                 "sample_type" => :single_turn
+               })
+
+      assert dataset.samples == samples
+      assert dataset.sample_type == :single_turn
+      assert InMemory.new!(%{samples: [], sample_type: :multi_turn}).sample_type == :multi_turn
+    end
+
     test "creates dataset from single-turn samples" do
       samples = [
         %SingleTurn{user_input: "Hello", response: "Hi!"},

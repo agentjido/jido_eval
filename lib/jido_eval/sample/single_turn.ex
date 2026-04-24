@@ -30,23 +30,33 @@ defmodule Jido.Eval.Sample.SingleTurn do
       "sample_001"
 
   """
-  use TypedStruct
-
   @type message :: %{role: atom() | String.t(), content: term()}
 
-  typedstruct do
-    @typedoc "A single-turn evaluation sample"
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              id: Zoi.string() |> Zoi.nullable() |> Zoi.default(nil),
+              user_input: Zoi.any() |> Zoi.default(nil),
+              retrieved_contexts: Zoi.list(Zoi.string()) |> Zoi.nullable() |> Zoi.default(nil),
+              reference_contexts: Zoi.list(Zoi.string()) |> Zoi.nullable() |> Zoi.default(nil),
+              response: Zoi.any() |> Zoi.default(nil),
+              multi_responses: Zoi.list(Zoi.string()) |> Zoi.nullable() |> Zoi.default(nil),
+              reference: Zoi.string() |> Zoi.nullable() |> Zoi.default(nil),
+              rubrics: Zoi.map(Zoi.string(), Zoi.string()) |> Zoi.nullable() |> Zoi.default(nil),
+              tags: Zoi.map(Zoi.string(), Zoi.string()) |> Zoi.default(%{})
+            },
+            coerce: true
+          )
 
-    field(:id, String.t() | nil, default: nil)
-    field(:user_input, message() | String.t() | nil, default: nil)
-    field(:retrieved_contexts, [String.t()] | nil, default: nil)
-    field(:reference_contexts, [String.t()] | nil, default: nil)
-    field(:response, message() | String.t() | nil, default: nil)
-    field(:multi_responses, [String.t()] | nil, default: nil)
-    field(:reference, String.t() | nil, default: nil)
-    field(:rubrics, %{String.t() => String.t()} | nil, default: nil)
-    field(:tags, %{String.t() => String.t()}, default: %{})
-  end
+  @typedoc "A single-turn evaluation sample"
+  @type t :: unquote(Zoi.type_spec(@schema))
+
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc false
+  @spec schema() :: Zoi.schema()
+  def schema, do: @schema
 
   @doc """
   Creates a new single-turn sample with validation.
@@ -61,13 +71,22 @@ defmodule Jido.Eval.Sample.SingleTurn do
       "Hello"
 
   """
-  @spec new(map()) :: {:ok, t()} | {:error, String.t()}
+  @spec new(map()) :: {:ok, t()} | {:error, term()}
   def new(attrs) when is_map(attrs) do
-    sample = struct(__MODULE__, attrs)
+    with {:ok, sample} <- Zoi.parse(@schema, attrs),
+         :ok <- validate(sample) do
+      {:ok, sample}
+    end
+  end
 
-    case validate(sample) do
-      :ok -> {:ok, sample}
-      {:error, reason} -> {:error, reason}
+  @doc """
+  Creates a single-turn sample or raises on validation errors.
+  """
+  @spec new!(map()) :: t()
+  def new!(attrs) when is_map(attrs) do
+    case new(attrs) do
+      {:ok, sample} -> sample
+      {:error, reason} -> raise ArgumentError, "Invalid #{inspect(__MODULE__)}: #{inspect(reason)}"
     end
   end
 
@@ -150,7 +169,7 @@ defmodule Jido.Eval.Sample.SingleTurn do
   @doc """
   Creates a sample from a map, with type conversion.
   """
-  @spec from_map(map()) :: {:ok, t()} | {:error, String.t()}
+  @spec from_map(map()) :: {:ok, t()} | {:error, term()}
   def from_map(map) when is_map(map) do
     converted_map =
       map

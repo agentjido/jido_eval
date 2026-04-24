@@ -21,6 +21,26 @@ defmodule Jido.Eval.ResultTest do
       assert result.config == config
       assert result.config.tags == %{"experiment" => "test"}
     end
+
+    test "validates map attributes" do
+      assert {:ok, result} =
+               Result.new(%{
+                 "run_id" => "from-map",
+                 "sample_count" => 2,
+                 "completed_count" => 1,
+                 "summary_stats" => %{}
+               })
+
+      assert result.run_id == "from-map"
+      assert result.sample_count == 2
+      assert result.completed_count == 1
+    end
+
+    test "new!/1 raises for invalid map attributes" do
+      assert_raise ArgumentError, fn ->
+        Result.new!(%{sample_count: "many"})
+      end
+    end
   end
 
   describe "add_sample_result/2" do

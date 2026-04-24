@@ -104,8 +104,7 @@ defmodule Jido.Eval.Integration.GoldenEvalTest do
           "The Roman Empire used extensive road networks for military and trade movement."
         ],
         response: "Solar panels use photovoltaic cells to convert sunlight into electricity.",
-        reference:
-          "Solar panels generate electricity when photovoltaic cells convert sunlight into current.",
+        reference: "Solar panels generate electricity when photovoltaic cells convert sunlight into current.",
         tags: %{"golden" => "low_precision_contexts"}
       }
     ]

@@ -261,9 +261,13 @@ defmodule Jido.Eval do
       {:ok, metrics} = Jido.Eval.list_metrics()
       IO.inspect(length(metrics))
   """
-  @spec list_metrics() :: {:ok, [module()]}
+  @spec list_metrics() :: {:ok, [module()]} | {:error, term()}
   def list_metrics do
-    {:ok, Jido.Eval.Metrics.list_available()}
+    with :ok <- ensure_bootstrapped() do
+      {:ok, Jido.Eval.Metrics.list_available()}
+    else
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """

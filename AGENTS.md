@@ -11,7 +11,8 @@ This package is based on Ragas version 0.3.1, available as of 2025-08-18 at http
 - **Test**: `mix test` (all), `mix test test/path/to/specific_test.exs` (single file), `mix test --trace` (verbose)
 - **Lint**: `mix credo` (basic), `mix credo --strict` (strict mode)
 - **Format**: `mix format` (format code), `mix format --check-formatted` (verify formatting)
-- **Quality**: `mix quality` or `mix q` (runs format, compile, dialyzer, credo, doctor, docs)
+- **Quality**: `mix quality` or `mix q` (runs format, compile, credo, dialyzer, doctor)
+- **Hooks**: `mix install_hooks` (explicit maintainer step; hooks do not auto-install)
 - **Compile**: `mix compile` (basic), `mix compile --warnings-as-errors` (strict)
 - **Type Check**: `mix dialyzer --format dialyxir`
 - **Coverage**: `mix test --cover` (basic), `mix coveralls.html` (HTML report)
@@ -19,10 +20,12 @@ This package is based on Ragas version 0.3.1, available as of 2025-08-18 at http
 
 ## SDLC
 
-- **Coverage Goal**: Test coverage goal should be 80%+
+- **Coverage Goal**: Test coverage goal should be 90%+
 - **Code Quality**: Use `mix quality` to run all checks
   - Fix all compiler warnings
   - Fix all dialyzer warnings
+  - Fix Credo issues at priority `higher` and above
+  - Keep `mix doctor --raise` passing
   - Add `@type` to all custom types
   - Add `@spec` to all public functions
   - Add `@doc` to all public functions and `@moduledoc` to all modules
@@ -35,6 +38,7 @@ This package is based on Ragas version 0.3.1, available as of 2025-08-18 at http
 - **Testing**: Mirror lib structure in test/, use ExUnit with async when possible, tag slow/integration tests
 - **HTTP Testing**: Use Req.Test for HTTP mocking instead of Mimic - provides cleaner stubs and better integration
 - **Error Handling**: Return `{:ok, result}` or `{:error, reason}` tuples, use `with` for complex flows
+- **Schemas**: Use Zoi for core struct schemas, types, defaults, and validation boundaries
 - **Imports**: Group aliases at module top, prefer explicit over wildcard imports
 - **Naming**: `snake_case` for functions/variables, `PascalCase` for modules
 - **Logging**: Avoid Logger metadata - integrate all fields into log message strings instead of using keyword lists
@@ -46,7 +50,7 @@ Jido Eval follows a **pluggable component architecture** with clean separation o
 - **Core Data Layer**: Sample structures and Dataset protocol for flexible data sources
 - **Component System**: Pluggable behaviours for reporters, stores, broadcasters, processors, middleware
 - **Execution Engine**: OTP-supervised evaluation with fault isolation and concurrency control
-- **LLM Integration**: Retry-enabled wrapper around jido_ai with caching and error normalization
+- **Judge Integration**: Retry-enabled wrapper around `req_llm` with caching and auditable response metadata
 
 ## Public API Overview
 
@@ -64,7 +68,8 @@ Jido Eval follows a **pluggable component architecture** with clean separation o
 # Enterprise features with pluggable components
 {:ok, result} = Jido.Eval.evaluate(dataset, 
   metrics: [:faithfulness, :context_precision],
-  llm: "openai:gpt-4o",
+  judge_model: "openai:gpt-4o",
+  judge_opts: [temperature: 0.0],
   run_config: %Jido.Eval.RunConfig{timeout: 30_000},
   reporters: [{MyApp.JSONReporter, format: :json}],
   stores: [{MyApp.PostgresStore, table: "evaluations"}],
@@ -85,7 +90,7 @@ end)
 
 ### Sample Structures
 - **`Jido.Eval.Sample.SingleTurn`**: Single Q&A interactions with context, response, and metadata
-- **`Jido.Eval.Sample.MultiTurn`**: Multi-turn conversations using `[Jido.AI.Message.t()]`
+- **`Jido.Eval.Sample.MultiTurn`**: Multi-turn conversations using message maps
 - **Helper Functions**: Convert between string and Message formats, validation with clear errors
 
 ### Dataset Protocol
@@ -103,55 +108,54 @@ end)
 - **Component Types**: reporter, store, broadcaster, processor, middleware
 - **Runtime Discovery**: Dynamic component lookup and registration
 
-## Jido AI Integration
+## ReqLLM Integration
 
-This package uses `jido_ai` for all LLM interactions. Follow these patterns:
+This package uses `req_llm` directly for judge calls in the basic eval harness. New code should pass `judge_model:` and
+`judge_opts:`. The legacy `llm:` and `llm_opts:` aliases remain accepted for compatibility.
 
 ### Text Generation
 
 ```elixir
 # Simple text generation
-{:ok, response} = Jido.AI.generate_text("openai:gpt-4o", "Evaluate this response")
+{:ok, call} = Jido.Eval.LLM.text("openai:gpt-4o", "Evaluate this response")
+call.output
 
 # With rich messages
-import Jido.AI.Messages
 messages = [
-  system("You are an evaluation expert"),
-  user("Rate this response: #{response}")
+  %{role: :system, content: "You are an evaluation expert"},
+  %{role: :user, content: "Rate this response"}
 ]
-{:ok, evaluation} = Jido.AI.generate_text("openai:gpt-4o", messages)
+{:ok, evaluation} = Jido.Eval.LLM.generate_text("openai:gpt-4o", messages)
 ```
 
 ### Structured Data Generation
 
 ```elixir
 # Schema-validated evaluation results
-schema = [
-  score: [type: :float, required: true],
-  reasoning: [type: :string, required: true],
-  categories: [type: {:list, :string}, default: []]
-]
+schema =
+  Zoi.object(%{
+    score: Zoi.float(),
+    reasoning: Zoi.string(),
+    categories: Zoi.list(Zoi.string()) |> Zoi.default([])
+  })
 
-{:ok, result} = Jido.AI.generate_object(
+{:ok, call} = Jido.Eval.LLM.object(
   "openai:gpt-4o",
   "Evaluate this response",
   schema
 )
+call.output
 ```
 
 ### Model Specifications
 
-This package uses `jido_ai` for all LLM interactions. The string format `"provider:model"` is the canonical way to specify models in the Jido ecosystem and is by design:
+This package passes model specs directly to `req_llm` and `llm_db`:
 
 - String: `"openai:gpt-4o"` or `"anthropic:claude-3-5-sonnet-20241022"` (primary format)
-- Tuple: `{:openai, model: "gpt-4o", temperature: 0.1}` (for evaluations requiring consistency)
-- Struct: `%Jido.AI.Model{}` (when building complex configurations)
+- Model struct: `LLMDB.model!("openai:gpt-4o")`
 
-The string format provides a clean, consistent interface across all Jido packages.
+Do not add local model-spec shim maps.
 
 ### Configuration
 
-Access provider keys via:
-- `Jido.AI.api_key(:openai)` - Get API key for provider
-- `Jido.AI.config([:openai, :api_key], nil)` - Get config with fallback
-
+Provider keys are read by `req_llm`. Live eval tests use Dotenvy to load `.env` when run with `--include live_eval`.

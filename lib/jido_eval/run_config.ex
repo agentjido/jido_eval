@@ -15,18 +15,45 @@ defmodule Jido.Eval.RunConfig do
       300000
   """
 
-  use TypedStruct
+  @schema Zoi.struct(
+            __MODULE__,
+            %{
+              run_id: Zoi.string() |> Zoi.nullable() |> Zoi.default(nil),
+              timeout: Zoi.integer() |> Zoi.default(180_000),
+              max_workers: Zoi.integer() |> Zoi.default(16),
+              seed: Zoi.integer() |> Zoi.default(42),
+              retry_policy: Zoi.any() |> Zoi.default(%Jido.Eval.RetryPolicy{}),
+              enable_caching: Zoi.boolean() |> Zoi.default(false),
+              telemetry_prefix: Zoi.list(Zoi.atom()) |> Zoi.default([:jido, :eval]),
+              enable_real_time_events: Zoi.boolean() |> Zoi.default(true)
+            },
+            coerce: true
+          )
 
-  typedstruct do
-    @typedoc "Execution configuration for evaluation runs"
+  @typedoc "Execution configuration for evaluation runs"
+  @type t :: unquote(Zoi.type_spec(@schema))
 
-    field(:run_id, String.t() | nil, default: nil)
-    field(:timeout, non_neg_integer(), default: 180_000)
-    field(:max_workers, non_neg_integer(), default: 16)
-    field(:seed, non_neg_integer(), default: 42)
-    field(:retry_policy, Jido.Eval.RetryPolicy.t(), default: %Jido.Eval.RetryPolicy{})
-    field(:enable_caching, boolean(), default: false)
-    field(:telemetry_prefix, [atom()], default: [:jido, :eval])
-    field(:enable_real_time_events, boolean(), default: true)
+  @enforce_keys Zoi.Struct.enforce_keys(@schema)
+  defstruct Zoi.Struct.struct_fields(@schema)
+
+  @doc false
+  @spec schema() :: Zoi.schema()
+  def schema, do: @schema
+
+  @doc """
+  Builds a run configuration from a map, validating with Zoi.
+  """
+  @spec new(map()) :: {:ok, t()} | {:error, term()}
+  def new(attrs \\ %{}) when is_map(attrs), do: Zoi.parse(@schema, attrs)
+
+  @doc """
+  Builds a run configuration from a map or raises on validation errors.
+  """
+  @spec new!(map()) :: t()
+  def new!(attrs \\ %{}) when is_map(attrs) do
+    case new(attrs) do
+      {:ok, config} -> config
+      {:error, reason} -> raise ArgumentError, "Invalid #{inspect(__MODULE__)}: #{inspect(reason)}"
+    end
   end
 end

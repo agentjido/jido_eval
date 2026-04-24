@@ -253,11 +253,7 @@ defmodule Jido.Eval.Metrics.ContextPrecisionTest do
   end
 
   defp stub_relevance_judge(relevance_by_context) do
-    Application.put_env(:jido_eval, :llm_stub, fn :object,
-                                                  %LLMDB.Model{},
-                                                  prompt,
-                                                  _schema,
-                                                  _opts ->
+    Application.put_env(:jido_eval, :llm_stub, fn :object, %LLMDB.Model{}, prompt, _schema, _opts ->
       relevant =
         relevance_by_context
         |> Enum.find_value(false, fn {context, value} ->

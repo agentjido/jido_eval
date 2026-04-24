@@ -4,6 +4,11 @@
 # If you run "mix test --cover", coverage assets end up here.
 /cover/
 
+# Dialyzer PLT files.
+/priv/plts/
+*.plt
+*.plt.hash
+
 # The directory Mix downloads your dependencies sources to.
 /deps/
 
@@ -21,6 +26,14 @@ jido_eval-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Editor and OS files.
+.elixir_ls/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
 
 # Local provider credentials loaded by Dotenvy for live evals.
 .env

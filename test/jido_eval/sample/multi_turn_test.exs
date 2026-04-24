@@ -46,6 +46,15 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
       assert {:error, reason} = MultiTurn.new(attrs)
       assert reason == "All conversation items must be valid messages"
     end
+
+    test "new!/1 returns samples or raises" do
+      assert %MultiTurn{conversation: [%{role: :user, content: "Hello"}]} =
+               MultiTurn.new!(%{conversation: [%{role: :user, content: "Hello"}]})
+
+      assert_raise ArgumentError, fn ->
+        MultiTurn.new!(%{conversation: []})
+      end
+    end
   end
 
   describe "validate/1" do
@@ -228,6 +237,28 @@ defmodule Jido.Eval.Sample.MultiTurnTest do
       assert sample.id == "test"
       assert length(sample.conversation) == 1
       assert sample.tags == %{"key" => "value"}
+    end
+
+    test "from_map converts known message metadata keys and tolerates unknown top-level keys" do
+      map = %{
+        "conversation" => [
+          %{
+            "role" => "user",
+            "content" => "Hello",
+            "name" => "pat",
+            "tool_call_id" => "call_1",
+            "metadata" => %{"source" => "test"}
+          }
+        ],
+        "unknown_field" => "kept by fallback"
+      }
+
+      assert {:ok, sample} = MultiTurn.from_map(map)
+      [message] = sample.conversation
+      assert message.role == :user
+      assert message.name == "pat"
+      assert message.tool_call_id == "call_1"
+      assert message.metadata == %{"source" => "test"}
     end
   end
 

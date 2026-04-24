@@ -133,9 +133,7 @@ defmodule Jido.Eval.Reporter.Console do
         min = Map.get(stats, :min, "N/A")
         max = Map.get(stats, :max, "N/A")
 
-        IO.puts(
-          "  #{metric}: avg=#{format_number(avg)} min=#{format_number(min)} max=#{format_number(max)}"
-        )
+        IO.puts("  #{metric}: avg=#{format_number(avg)} min=#{format_number(min)} max=#{format_number(max)}")
       end)
     end
 

@@ -31,10 +31,31 @@ defmodule Jido.Eval.RetryPolicyTest do
     end
 
     test "validates field types" do
-      # This would be enforced by TypedStruct at compile time
-      # but we can test runtime behavior
+      # Runtime struct literals remain permissive; the Zoi schema documents field expectations.
       policy = %RetryPolicy{max_retries: 0}
       assert policy.max_retries == 0
+    end
+  end
+
+  describe "new/1 and new!/1" do
+    test "validates maps with coercion" do
+      assert {:ok, policy} =
+               RetryPolicy.new(%{
+                 "max_retries" => 1,
+                 "base_delay" => 5,
+                 "jitter" => false
+               })
+
+      assert policy.max_retries == 1
+      assert policy.base_delay == 5
+      assert policy.jitter == false
+      assert %RetryPolicy{} = RetryPolicy.new!()
+    end
+
+    test "raises for invalid maps" do
+      assert_raise ArgumentError, fn ->
+        RetryPolicy.new!(%{max_retries: "many"})
+      end
     end
   end
 
