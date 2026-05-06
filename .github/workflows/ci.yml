@@ -2,64 +2,30 @@ name: CI
 
 on:
   pull_request:
+  merge_group:
   push:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
+  actions: read
   contents: read
 
 jobs:
-  quality:
-    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - elixir: 1.18.4
-            otp: 27.3
-          - elixir: 1.19.5
-            otp: 28.0
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up BEAM
-        uses: erlef/setup-beam@v1
-        with:
-          elixir-version: ${{ matrix.elixir }}
-          otp-version: ${{ matrix.otp }}
-
-      - name: Restore dependencies cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            deps
-            _build
-            priv/plts
-          key: ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-
-
-      - name: Install dependencies
-        run: mix deps.get
-
-      - name: Check unused dependencies
-        run: mix deps.unlock --check-unused
-
-      - name: Audit dependencies
-        run: mix deps.audit
-
-      - name: Run quality gate
-        run: mix quality
-
-      - name: Run tests
-        run: mix test
-
-      - name: Check coverage
-        run: mix coveralls
-
-      - name: Build docs
-        run: mix docs --formatter html
+  ci:
+    name: CI
+    uses: agentjido/github-actions/.github/workflows/jido-ci.yml@v4
+    secrets: inherit
+    with:
+      otp_versions: '["27", "28"]'
+      elixir_versions: '["1.18", "1.19"]'
+      experimental_compile_elixir_versions: '["v1.20.0-rc.4"]'
+      experimental_compile_otp_versions: '["28.4.1"]'
+      experimental_compile_otp_name: '28'
+      credo_command: mix credo --min-priority higher
+      docs_command: mix docs -f html
+      test_command: mix test

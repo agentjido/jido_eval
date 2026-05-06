@@ -5,39 +5,55 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      operation:
+        description: "Release operation: auto, prepare, or publish"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - prepare
+          - publish
+      tag_name:
+        description: "Optional v-prefixed tag for publish simulation"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run (no git push, no tag, no GitHub release, no Hex publish)"
+        required: false
+        type: boolean
+        default: false
+      hex_dry_run:
+        description: "Hex dry run only (run all git/release steps, but skip actual Hex publish)"
+        required: false
+        type: boolean
+        default: false
+      skip_tests:
+        description: "Skip tests before release"
+        required: false
+        type: boolean
+        default: false
+      version_override:
+        description: "Optional bare SemVer override (for example 1.2.3, not v1.2.3)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
-  contents: read
+  actions: read
+  contents: write
 
 jobs:
-  publish:
-    name: Publish Hex package
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up BEAM
-        uses: erlef/setup-beam@v1
-        with:
-          elixir-version: 1.19.5
-          otp-version: 28.0
-
-      - name: Install dependencies
-        run: mix deps.get
-
-      - name: Run quality gate
-        run: mix quality
-
-      - name: Run tests
-        run: mix test
-
-      - name: Build package
-        run: mix hex.build
-
-      - name: Publish package
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-        run: mix hex.publish --yes
+  release:
+    name: Release
+    uses: agentjido/github-actions/.github/workflows/jido-release.yml@v4
+    with:
+      operation: ${{ inputs.operation || 'auto' }}
+      tag_name: ${{ inputs.tag_name || '' }}
+      dry_run: ${{ inputs.dry_run || false }}
+      hex_dry_run: ${{ inputs.hex_dry_run || false }}
+      skip_tests: ${{ inputs.skip_tests || false }}
+      version_override: ${{ inputs.version_override || '' }}
+    secrets: inherit
