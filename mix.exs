@@ -1,7 +1,7 @@
 defmodule JidoEval.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "1.0.0"
   @source_url "https://github.com/agentjido/jido_eval"
   @description "Ragas-like and agentic evaluation harness for LLM systems in the Jido ecosystem."
 
@@ -61,8 +61,8 @@ defmodule JidoEval.MixProject do
   defp deps do
     [
       # Core
-      {:req_llm, "~> 1.10"},
-      {:llm_db, "~> 2026.4"},
+      {:req_llm, "~> 1.12"},
+      {:llm_db, "~> 2026.5"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.4"},
       {:uniq, "~> 0.6"},
