@@ -1,5 +1,13 @@
 # Jido Eval
 
+[![Hex.pm](https://img.shields.io/hexpm/v/jido_eval.svg)](https://hex.pm/packages/jido_eval)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_eval/)
+[![CI](https://github.com/agentjido/jido_eval/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_eval/actions/workflows/ci.yml)
+[![License](https://img.shields.io/hexpm/l/jido_eval.svg)](https://github.com/agentjido/jido_eval/blob/main/LICENSE)
+[![Website](https://img.shields.io/badge/website-jido.run-0f172a.svg)](https://jido.run)
+[![Ecosystem](https://img.shields.io/badge/ecosystem-jido.run-0ea5e9.svg)](https://jido.run/ecosystem)
+[![Discord](https://img.shields.io/badge/discord-join-5865F2.svg?logo=discord&logoColor=white)](https://jido.run/discord)
+
 Jido Eval is an Elixir package for evaluating LLM applications in the Jido ecosystem. The current core is a
 Ragas-like harness for dataset-based evaluation with structured judge calls through [`req_llm`](https://hex.pm/packages/req_llm)
 and model metadata from [`llm_db`](https://hex.pm/packages/llm_db).
@@ -102,7 +110,6 @@ mix test --include live_eval
 mix setup
 mix test
 mix quality
-mix coveralls
 mix docs
 ```
 
