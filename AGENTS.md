@@ -159,3 +159,7 @@ Do not add local model-spec shim maps.
 ### Configuration
 
 Provider keys are read by `req_llm`. Live eval tests use Dotenvy to load `.env` when run with `--include live_eval`.
+
+## Release Hygiene
+
+- Do not modify `CHANGELOG.md`; release notes are generated from Git history during release, so keep changes focused on proper Conventional Commits.
