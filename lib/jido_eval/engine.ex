@@ -28,8 +28,6 @@ defmodule Jido.Eval.Engine do
       {:ok, result} = Jido.Eval.Engine.await_result(run_id, 30_000)
   """
 
-  require Logger
-
   alias Jido.Eval.{Config, Result, Dataset}
   alias Jido.Eval.Engine.Run
 

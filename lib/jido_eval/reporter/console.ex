@@ -24,8 +24,6 @@ defmodule Jido.Eval.Reporter.Console do
 
   @behaviour Jido.Eval.Reporter
 
-  require Logger
-
   @doc """
   Report evaluation events to console output.
 
