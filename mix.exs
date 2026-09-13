@@ -61,8 +61,8 @@ defmodule JidoEval.MixProject do
   defp deps do
     [
       # Core
-      {:req_llm, "~> 1.12"},
-      {:llm_db, "~> 2026.5"},
+      {:req_llm, "~> 1.22"},
+      {:llm_db, ">= 2026.9.1 and < 2027.0.0"},
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.4"},
       {:uniq, "~> 0.6"},
