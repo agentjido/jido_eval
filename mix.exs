@@ -66,7 +66,7 @@ defmodule JidoEval.MixProject do
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.4"},
       {:uniq, "~> 0.6"},
-      {:zoi, "~> 0.18"},
+      {:zoi, "~> 0.18.11"},
       {:splode, "~> 0.3.1"},
       {:nimble_csv, "~> 1.2"},
 
