@@ -50,7 +50,7 @@
   "sobelow": {:hex, :sobelow, "0.16.0", "13e3f761bc7fcc88e81ae23ddef9140617a12a3efb26601e5516453290539398", [:mix], [{:jason, "~> 1.0", [hex: :jason, repo: "hexpm", optional: false]}], "hexpm", "00a0260edf9aeac35d9116366f55dc9451d11e0e696e28ec5570c6a56bd41f1e"},
   "sourceror": {:hex, :sourceror, "1.12.4", "bacd26c049431a024598a5cf62fefc33b8f361a5a0508a26cde0ab8be12aa457", [:mix], [], "hexpm", "a8c550a14801aa7c14e3bf7a40acbb448114e369b1b88254fc36d48fae72c1e6"},
   "spitfire": {:hex, :spitfire, "0.4.3", "83aa224f713966769644772a814a67b26df518d25059b3855c23a2f7b531937a", [:mix], [], "hexpm", "4f771bbdf00fe6eda6e2a7e488c42ead48142fea697349510a41fabb41376632"},
-  "splode": {:hex, :splode, "0.3.2", "7716b6b2260a98a6f018c65cc0393da2cdf17314202eb351a0956e8762190dff", [:mix], [], "hexpm", "08fd658f80da7f1cd254b149164dcff8acd44b22f032001d5416b97223d32bc9"},
+  "splode": {:hex, :splode, "0.3.3", "420917ee2373c5db8462417ea6faa8cbeb8deec7b18ae5dd2fa07c67f883f25a", [:mix], [], "hexpm", "3f98c7799ec8960f816b4ccc5cc6a5d2b72a20ad3f8fff9199fb530194ad9f50"},
   "stream_data": {:hex, :stream_data, "1.4.0", "026f929db613aabea6208012ae9b8970d3fd5f88b3bdf26831bc536f98c42036", [:mix], [], "hexpm", "2b0ee3a340dcce1c8cf6302a763ee757d1e01c54d6e16d9069062509d68b1dc9"},
   "telemetry": {:hex, :telemetry, "1.4.2", "a0cb522801dffb1c49fe6e30561badffc7b6d0e180db1300df759faa22062855", [:rebar3], [], "hexpm", "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1"},
   "text_diff": {:hex, :text_diff, "0.1.0", "1caf3175e11a53a9a139bc9339bd607c47b9e376b073d4571c031913317fecaa", [:mix], [], "hexpm", "d1ffaaecab338e49357b6daa82e435f877e0649041ace7755583a0ea3362dbd7"},
