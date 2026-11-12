@@ -17,9 +17,9 @@ defmodule Jido.Eval.Dataset.InMemory do
 
   """
   alias Jido.Eval.Dataset
-  alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
+  alias Jido.Eval.Sample.{AgentTrace, SingleTurn, MultiTurn}
 
-  @sample_type_schema Zoi.union([Zoi.literal(:single_turn), Zoi.literal(:multi_turn)])
+  @sample_type_schema Zoi.union([Zoi.literal(:single_turn), Zoi.literal(:multi_turn), Zoi.literal(:agent_trace)])
 
   @schema Zoi.struct(
             __MODULE__,
@@ -53,7 +53,7 @@ defmodule Jido.Eval.Dataset.InMemory do
       :single_turn
 
   """
-  @spec new(map() | [SingleTurn.t() | MultiTurn.t()]) :: {:ok, t()} | {:error, term()}
+  @spec new(map() | [SingleTurn.t() | MultiTurn.t() | AgentTrace.t()]) :: {:ok, t()} | {:error, term()}
   def new(attrs) when is_map(attrs), do: Zoi.parse(@schema, attrs)
 
   def new(samples) when is_list(samples) do
@@ -94,8 +94,8 @@ defmodule Jido.Eval.Dataset.InMemory do
       0
 
   """
-  @spec empty(:single_turn | :multi_turn) :: {:ok, t()}
-  def empty(sample_type) when sample_type in [:single_turn, :multi_turn] do
+  @spec empty(:single_turn | :multi_turn | :agent_trace) :: {:ok, t()}
+  def empty(sample_type) when sample_type in [:single_turn, :multi_turn, :agent_trace] do
     dataset = %__MODULE__{samples: [], sample_type: sample_type}
     {:ok, dataset}
   end
@@ -114,7 +114,7 @@ defmodule Jido.Eval.Dataset.InMemory do
       1
 
   """
-  @spec add_sample(t(), SingleTurn.t() | MultiTurn.t()) :: {:ok, t()} | {:error, String.t()}
+  @spec add_sample(t(), SingleTurn.t() | MultiTurn.t() | AgentTrace.t()) :: {:ok, t()} | {:error, String.t()}
   def add_sample(%__MODULE__{} = dataset, sample) do
     if sample_matches_type?(sample, dataset.sample_type) do
       updated_samples = dataset.samples ++ [sample]
@@ -138,7 +138,7 @@ defmodule Jido.Eval.Dataset.InMemory do
 
   """
   @spec get_sample(t(), non_neg_integer()) ::
-          {:ok, SingleTurn.t() | MultiTurn.t()} | {:error, String.t()}
+          {:ok, SingleTurn.t() | MultiTurn.t() | AgentTrace.t()} | {:error, String.t()}
   def get_sample(%__MODULE__{samples: samples}, index) when is_integer(index) do
     if index >= 0 do
       case Enum.at(samples, index) do
@@ -174,6 +174,7 @@ defmodule Jido.Eval.Dataset.InMemory do
 
   defp detect_sample_type([%SingleTurn{} | _]), do: {:ok, :single_turn}
   defp detect_sample_type([%MultiTurn{} | _]), do: {:ok, :multi_turn}
+  defp detect_sample_type([%AgentTrace{} | _]), do: {:ok, :agent_trace}
   defp detect_sample_type([sample | _]), do: {:error, "Unknown sample type: #{inspect(sample)}"}
 
   defp all_same_type?(samples, expected_type) do
@@ -182,5 +183,6 @@ defmodule Jido.Eval.Dataset.InMemory do
 
   defp sample_matches_type?(%SingleTurn{}, :single_turn), do: true
   defp sample_matches_type?(%MultiTurn{}, :multi_turn), do: true
+  defp sample_matches_type?(%AgentTrace{}, :agent_trace), do: true
   defp sample_matches_type?(_, _), do: false
 end

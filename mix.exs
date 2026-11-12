@@ -147,12 +147,20 @@ defmodule JidoEval.MixProject do
           Jido.Eval.Dataset.InMemory,
           Jido.Eval.Dataset.JSONL
         ],
-        Samples: [Jido.Eval.Sample.SingleTurn, Jido.Eval.Sample.MultiTurn],
+        Samples: [
+          Jido.Eval.Sample.SingleTurn,
+          Jido.Eval.Sample.MultiTurn,
+          Jido.Eval.Sample.AgentTrace,
+          Jido.Eval.AgentTrace,
+          Jido.Eval.AgentTrace.Span
+        ],
         Metrics: [
           Jido.Eval.Metric,
           Jido.Eval.Metrics,
           Jido.Eval.Metrics.ContextPrecision,
           Jido.Eval.Metrics.Faithfulness,
+          Jido.Eval.Metrics.Agent.ToolUseCorrectness,
+          Jido.Eval.Metrics.Agent.TaskSuccess,
           Jido.Eval.Metrics.Utils
         ],
         Execution: [Jido.Eval.Engine, Jido.Eval.Engine.Run, Jido.Eval.Engine.Sample],

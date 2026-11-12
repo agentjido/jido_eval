@@ -2,6 +2,7 @@ defmodule Jido.Eval.MetricsTest do
   use ExUnit.Case, async: false
 
   alias Jido.Eval.{Metrics, ComponentRegistry, Sample.SingleTurn}
+  alias Jido.Eval.Metrics.Agent.{TaskSuccess, ToolUseCorrectness}
   alias Jido.Eval.Metrics.{Faithfulness, ContextPrecision}
 
   @moduletag :capture_log
@@ -20,6 +21,8 @@ defmodule Jido.Eval.MetricsTest do
       metrics = ComponentRegistry.list(:metric)
       assert Faithfulness in metrics
       assert ContextPrecision in metrics
+      assert ToolUseCorrectness in metrics
+      assert TaskSuccess in metrics
     end
 
     test "is idempotent - can be called multiple times" do
@@ -43,6 +46,8 @@ defmodule Jido.Eval.MetricsTest do
       metrics = Metrics.list_available()
       assert Faithfulness in metrics
       assert ContextPrecision in metrics
+      assert ToolUseCorrectness in metrics
+      assert TaskSuccess in metrics
     end
   end
 
@@ -65,6 +70,18 @@ defmodule Jido.Eval.MetricsTest do
       assert info.required_fields == [:user_input, :retrieved_contexts, :reference]
       assert info.sample_types == [:single_turn]
       assert info.score_range == {0.0, 1.0}
+    end
+
+    test "returns metric information for agent metrics" do
+      assert {:ok, info} = Metrics.get_info(ToolUseCorrectness)
+      assert info.name == "Agent Tool Use Correctness"
+      assert info.required_fields == [:task, :trace]
+      assert info.sample_types == [:agent_trace]
+
+      assert {:ok, info} = Metrics.get_info(TaskSuccess)
+      assert info.name == "Agent Task Success"
+      assert info.required_fields == [:task, :trace]
+      assert info.sample_types == [:agent_trace]
     end
 
     test "returns error for invalid metric module" do
@@ -174,8 +191,10 @@ defmodule Jido.Eval.MetricsTest do
 
       assert Faithfulness in built_ins
       assert ContextPrecision in built_ins
+      assert ToolUseCorrectness in built_ins
+      assert TaskSuccess in built_ins
       assert is_list(built_ins)
-      assert length(built_ins) >= 2
+      assert length(built_ins) >= 4
     end
   end
 end

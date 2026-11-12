@@ -17,6 +17,7 @@ defprotocol Jido.Eval.Dataset do
   The protocol supports these sample types:
   - `:single_turn` - For `Jido.Eval.Sample.SingleTurn` samples
   - `:multi_turn` - For `Jido.Eval.Sample.MultiTurn` samples
+  - `:agent_trace` - For `Jido.Eval.Sample.AgentTrace` samples
 
   ## Examples
 
@@ -44,10 +45,10 @@ defprotocol Jido.Eval.Dataset do
   @doc """
   Get the sample type for this dataset.
 
-  Returns either `:single_turn` or `:multi_turn` to indicate
+  Returns either `:single_turn`, `:multi_turn`, or `:agent_trace` to indicate
   what type of samples this dataset contains.
   """
-  @spec sample_type(t()) :: :single_turn | :multi_turn
+  @spec sample_type(t()) :: :single_turn | :multi_turn | :agent_trace
   def sample_type(dataset)
 
   @doc """

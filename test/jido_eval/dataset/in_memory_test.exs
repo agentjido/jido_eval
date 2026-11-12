@@ -4,7 +4,7 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
 
   alias Jido.Eval.Dataset
   alias Jido.Eval.Dataset.InMemory
-  alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
+  alias Jido.Eval.Sample.{AgentTrace, SingleTurn, MultiTurn}
 
   doctest InMemory
 
@@ -45,6 +45,16 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
       assert length(dataset.samples) == 2
     end
 
+    test "creates dataset from agent trace samples" do
+      samples = [
+        AgentTrace.new!(%{task: "Resolve refund", trace: [%{type: "tool_call", name: "lookup_order"}]})
+      ]
+
+      assert {:ok, dataset} = InMemory.new(samples)
+      assert dataset.sample_type == :agent_trace
+      assert length(dataset.samples) == 1
+    end
+
     test "rejects mixed sample types" do
       samples = [
         %SingleTurn{user_input: "Hello"},
@@ -76,6 +86,12 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
     test "creates empty multi-turn dataset" do
       assert {:ok, dataset} = InMemory.empty(:multi_turn)
       assert dataset.sample_type == :multi_turn
+      assert dataset.samples == []
+    end
+
+    test "creates empty agent trace dataset" do
+      assert {:ok, dataset} = InMemory.empty(:agent_trace)
+      assert dataset.sample_type == :agent_trace
       assert dataset.samples == []
     end
   end
@@ -161,6 +177,13 @@ defmodule Jido.Eval.Dataset.InMemoryTest do
       multi_samples = [%MultiTurn{conversation: [%{role: :user, content: "Hello"}]}]
       {:ok, multi_dataset} = InMemory.new(multi_samples)
       assert Dataset.sample_type(multi_dataset) == :multi_turn
+
+      agent_samples = [
+        AgentTrace.new!(%{task: "Resolve refund", trace: [%{type: "tool_call", name: "lookup_order"}]})
+      ]
+
+      {:ok, agent_dataset} = InMemory.new(agent_samples)
+      assert Dataset.sample_type(agent_dataset) == :agent_trace
     end
 
     test "count/1 returns accurate count" do

@@ -17,9 +17,9 @@ defmodule Jido.Eval.Dataset.JSONL do
 
   """
   alias Jido.Eval.Dataset
-  alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
+  alias Jido.Eval.Sample.{AgentTrace, SingleTurn, MultiTurn}
 
-  @sample_type_schema Zoi.union([Zoi.literal(:single_turn), Zoi.literal(:multi_turn)])
+  @sample_type_schema Zoi.union([Zoi.literal(:single_turn), Zoi.literal(:multi_turn), Zoi.literal(:agent_trace)])
   @encoding_schema Zoi.union([Zoi.literal(:utf8), Zoi.literal(:latin1)])
 
   @schema Zoi.struct(
@@ -56,7 +56,7 @@ defmodule Jido.Eval.Dataset.JSONL do
       "data.jsonl"
 
   """
-  @spec new(String.t(), :single_turn | :multi_turn, keyword()) ::
+  @spec new(String.t(), :single_turn | :multi_turn | :agent_trace, keyword()) ::
           {:ok, t()} | {:error, String.t()}
   def new(file_path, sample_type, opts \\ []) do
     encoding = Keyword.get(opts, :encoding, :utf8)
@@ -127,7 +127,7 @@ defmodule Jido.Eval.Dataset.JSONL do
       iex> :ok = Jido.Eval.Dataset.JSONL.write("output.jsonl", samples)
 
   """
-  @spec write(String.t(), [SingleTurn.t() | MultiTurn.t()]) :: :ok | {:error, String.t()}
+  @spec write(String.t(), [SingleTurn.t() | MultiTurn.t() | AgentTrace.t()]) :: :ok | {:error, String.t()}
   def write(file_path, samples) when is_list(samples) do
     try do
       file = File.open!(file_path, [:write])
@@ -201,6 +201,9 @@ defmodule Jido.Eval.Dataset.JSONL do
 
   defp detect_sample_type_from_map(map) when is_map(map) do
     cond do
+      Map.has_key?(map, "trace") or Map.has_key?(map, :trace) ->
+        {:ok, :agent_trace}
+
       Map.has_key?(map, "conversation") or Map.has_key?(map, :conversation) ->
         {:ok, :multi_turn}
 
@@ -225,12 +228,14 @@ defmodule Jido.Eval.Dataset.JSONL do
 
   defp create_sample_from_map(map, :single_turn), do: SingleTurn.from_map(map)
   defp create_sample_from_map(map, :multi_turn), do: MultiTurn.from_map(map)
+  defp create_sample_from_map(map, :agent_trace), do: AgentTrace.from_map(map)
 
   defp sample_to_json_line(sample) do
     map =
       case sample do
         %SingleTurn{} -> SingleTurn.to_map(sample)
         %MultiTurn{} -> MultiTurn.to_map(sample)
+        %AgentTrace{} -> AgentTrace.to_map(sample)
       end
 
     case Jason.encode(map) do

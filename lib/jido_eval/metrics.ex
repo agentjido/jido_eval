@@ -9,6 +9,8 @@ defmodule Jido.Eval.Metrics do
 
   - `Jido.Eval.Metrics.Faithfulness` - Measures response grounding in contexts
   - `Jido.Eval.Metrics.ContextPrecision` - Measures context relevance to questions
+  - `Jido.Eval.Metrics.Agent.ToolUseCorrectness` - Checks expected agent tool usage
+  - `Jido.Eval.Metrics.Agent.TaskSuccess` - Scores agent task completion from a compact trace view
 
   ## Examples
 
@@ -23,19 +25,24 @@ defmodule Jido.Eval.Metrics do
   """
 
   alias Jido.Eval.ComponentRegistry
+  alias Jido.Eval.Metrics.Agent.{TaskSuccess, ToolUseCorrectness}
   alias Jido.Eval.Metrics.{Faithfulness, ContextPrecision}
 
   require Logger
 
   @built_in_metrics [
     Faithfulness,
-    ContextPrecision
+    ContextPrecision,
+    ToolUseCorrectness,
+    TaskSuccess
   ]
 
   # Metric aliases for convenient access
   @metric_aliases %{
     Faithfulness => :faithfulness,
-    ContextPrecision => :context_precision
+    ContextPrecision => :context_precision,
+    ToolUseCorrectness => :agent_tool_use_correctness,
+    TaskSuccess => :agent_task_success
   }
 
   @doc """

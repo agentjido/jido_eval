@@ -5,11 +5,12 @@ defmodule Jido.Eval.Dataset.JSONLTest do
 
   alias Jido.Eval.Dataset
   alias Jido.Eval.Dataset.JSONL
-  alias Jido.Eval.Sample.{SingleTurn, MultiTurn}
+  alias Jido.Eval.Sample.{AgentTrace, SingleTurn, MultiTurn}
 
   @fixtures_path Path.join([__DIR__, "..", "..", "fixtures"])
   @single_turn_file Path.join(@fixtures_path, "single_turn_samples.jsonl")
   @multi_turn_file Path.join(@fixtures_path, "multi_turn_samples.jsonl")
+  @agent_trace_file Path.join(@fixtures_path, "agent_trace_samples.jsonl")
 
   setup do
     # Create temp directory for test files
@@ -77,6 +78,11 @@ defmodule Jido.Eval.Dataset.JSONLTest do
     test "auto-detects multi-turn samples" do
       assert {:ok, dataset} = JSONL.auto_detect(@multi_turn_file)
       assert dataset.sample_type == :multi_turn
+    end
+
+    test "auto-detects agent trace samples" do
+      assert {:ok, dataset} = JSONL.auto_detect(@agent_trace_file)
+      assert dataset.sample_type == :agent_trace
     end
 
     test "handles malformed file gracefully", %{temp_dir: temp_dir} do
@@ -150,6 +156,27 @@ defmodule Jido.Eval.Dataset.JSONLTest do
       assert length(sample.conversation) == 2
     end
 
+    test "writes agent trace samples to file", %{temp_dir: temp_dir} do
+      samples = [
+        AgentTrace.new!(%{
+          id: "agent_1",
+          task: "Resolve refund",
+          trace: [%{type: "tool_call", name: "lookup_order"}],
+          expectations: %{required_tools: ["lookup_order"]}
+        })
+      ]
+
+      output_file = Path.join(temp_dir, "agent_output.jsonl")
+      assert :ok = JSONL.write(output_file, samples)
+
+      {:ok, dataset} = JSONL.new(output_file, :agent_trace)
+      [sample] = Dataset.to_stream(dataset) |> Enum.to_list()
+
+      assert sample.id == "agent_1"
+      assert sample.task == "Resolve refund"
+      assert AgentTrace.tool_names(sample) == ["lookup_order"]
+    end
+
     test "handles write errors gracefully" do
       samples = [%SingleTurn{user_input: "Test"}]
       invalid_path = "/invalid/path/file.jsonl"
@@ -203,12 +230,26 @@ defmodule Jido.Eval.Dataset.JSONLTest do
       assert second.reference == "Should provide weather info"
     end
 
+    test "to_stream/1 reads agent trace samples correctly" do
+      {:ok, dataset} = JSONL.new(@agent_trace_file, :agent_trace)
+      samples = Dataset.to_stream(dataset) |> Enum.to_list()
+
+      assert length(samples) == 1
+      [sample] = samples
+      assert sample.id == "refund_success"
+      assert sample.task == "Resolve a customer refund request"
+      assert AgentTrace.tool_names(sample) == ["lookup_order", "issue_refund"]
+    end
+
     test "sample_type/1 returns correct type" do
       {:ok, single_dataset} = JSONL.new(@single_turn_file, :single_turn)
       assert Dataset.sample_type(single_dataset) == :single_turn
 
       {:ok, multi_dataset} = JSONL.new(@multi_turn_file, :multi_turn)
       assert Dataset.sample_type(multi_dataset) == :multi_turn
+
+      {:ok, agent_dataset} = JSONL.new(@agent_trace_file, :agent_trace)
+      assert Dataset.sample_type(agent_dataset) == :agent_trace
     end
 
     test "count/1 returns accurate count" do
@@ -217,6 +258,9 @@ defmodule Jido.Eval.Dataset.JSONLTest do
 
       {:ok, multi_dataset} = JSONL.new(@multi_turn_file, :multi_turn)
       assert Dataset.count(multi_dataset) == 2
+
+      {:ok, agent_dataset} = JSONL.new(@agent_trace_file, :agent_trace)
+      assert Dataset.count(agent_dataset) == 1
     end
 
     test "handles empty lines and whitespace" do

@@ -12,7 +12,7 @@ defmodule Jido.Eval.Metric do
   - `name/0` - Human-readable metric name
   - `description/0` - Brief description of what the metric measures
   - `required_fields/0` - List of required sample fields
-  - `sample_types/0` - List of supported sample types (`:single_turn`, `:multi_turn`)
+  - `sample_types/0` - List of supported sample types (`:single_turn`, `:multi_turn`, `:agent_trace`)
   - `score_range/0` - Tuple of `{min, max}` score values
 
   ## Examples
@@ -30,7 +30,7 @@ defmodule Jido.Eval.Metric do
         def required_fields, do: [:response, :user_input]
 
         @impl true
-        def sample_types, do: [:single_turn]
+          def sample_types, do: [:single_turn]
 
         @impl true
         def score_range, do: {0.0, 1.0}
@@ -59,7 +59,10 @@ defmodule Jido.Eval.Metric do
   - `{:error, {:timeout, duration}}` - Evaluation timed out
   """
 
-  @type sample :: Jido.Eval.Sample.SingleTurn.t() | Jido.Eval.Sample.MultiTurn.t()
+  @type sample ::
+          Jido.Eval.Sample.SingleTurn.t()
+          | Jido.Eval.Sample.MultiTurn.t()
+          | Jido.Eval.Sample.AgentTrace.t()
   @type config :: Jido.Eval.Config.t()
   @type opts :: keyword()
   @type score :: float()
@@ -115,7 +118,7 @@ defmodule Jido.Eval.Metric do
       iex> Jido.Eval.Metrics.Faithfulness.sample_types()
       [:single_turn]
   """
-  @callback sample_types() :: [:single_turn | :multi_turn]
+  @callback sample_types() :: [:single_turn | :multi_turn | :agent_trace]
 
   @doc """
   Score range as `{min, max}` tuple.
@@ -189,15 +192,17 @@ defmodule Jido.Eval.Metric do
 
   - `:single_turn` - SingleTurn sample
   - `:multi_turn` - MultiTurn sample
+  - `:agent_trace` - AgentTrace sample
 
   ## Examples
 
       :single_turn = Jido.Eval.Metric.get_sample_type(%SingleTurn{})
       :multi_turn = Jido.Eval.Metric.get_sample_type(%MultiTurn{})
   """
-  @spec get_sample_type(sample()) :: :single_turn | :multi_turn
+  @spec get_sample_type(sample()) :: :single_turn | :multi_turn | :agent_trace
   def get_sample_type(%Jido.Eval.Sample.SingleTurn{}), do: :single_turn
   def get_sample_type(%Jido.Eval.Sample.MultiTurn{}), do: :multi_turn
+  def get_sample_type(%Jido.Eval.Sample.AgentTrace{}), do: :agent_trace
 
   # Private helper functions
 

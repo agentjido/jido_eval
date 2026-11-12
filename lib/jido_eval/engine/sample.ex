@@ -9,6 +9,7 @@ defmodule Jido.Eval.Engine.Sample do
   require Logger
 
   alias Jido.Eval.{Config, ComponentRegistry}
+  alias Jido.Eval.Metrics.Agent.{TaskSuccess, ToolUseCorrectness}
   alias Jido.Eval.Metrics.{ContextPrecision, Faithfulness}
 
   @doc """
@@ -87,6 +88,12 @@ defmodule Jido.Eval.Engine.Sample do
 
       :context_precision ->
         ContextPrecision
+
+      :agent_tool_use_correctness ->
+        ToolUseCorrectness
+
+      :agent_task_success ->
+        TaskSuccess
 
       module ->
         # Assume it's already a module
