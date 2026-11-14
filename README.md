@@ -15,6 +15,21 @@ and model metadata from [`llm_db`](https://hex.pm/packages/llm_db).
 Agentic evals are expected to build on this foundation later. This package keeps the basic evaluation layer small:
 load samples, run metrics, preserve per-metric judge metadata, and return an auditable `Jido.Eval.Result`.
 
+## Jido v3 compatibility
+
+Jido Eval is a separate evaluation package. Consolidated Jido v3 owns Actions,
+Flows, Agents, Signals, and AI execution. Jido Eval owns datasets, metrics,
+judge calls, and evaluation results. It does not require a Jido runtime.
+
+Use `req_llm ~> 1.30` and `zoi ~> 0.19.0` with both packages. Pass application
+outputs into evaluation samples. Agent execution, trace conversion, and automatic
+feedback into `jido_evolve` need application code; this package has no built-in
+adapter for those tasks. The existing evaluation API remains the same.
+
+These dependency updates are local changes for the next release. Test this
+checkout with consolidated Jido before use. The installation example below
+does not prove that an existing published release has these updates.
+
 ## Installation
 
 Add `jido_eval` to your dependencies:
@@ -22,7 +37,7 @@ Add `jido_eval` to your dependencies:
 ```elixir
 def deps do
   [
-    {:jido_eval, "~> 0.1.0"}
+    {:jido_eval, "~> 1.0"}
   ]
 end
 ```
