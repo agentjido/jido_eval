@@ -1,5 +1,10 @@
 # Jido Eval
 
+> [!IMPORTANT]
+> **This standalone package is planned for deprecation.** [Tune](https://github.com/agentjido/tune) is the successor for new evaluation work.
+>
+> Check that Tune covers your workflow before changing dependencies.
+
 [![Hex.pm](https://img.shields.io/hexpm/v/jido_eval.svg)](https://hex.pm/packages/jido_eval)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/jido_eval/)
 [![CI](https://github.com/agentjido/jido_eval/actions/workflows/ci.yml/badge.svg)](https://github.com/agentjido/jido_eval/actions/workflows/ci.yml)
